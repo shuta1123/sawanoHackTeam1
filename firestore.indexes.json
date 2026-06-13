@@ -1,0 +1,14 @@
+{
+  "indexes": [
+    {
+      "comment": "wakeLogs をユーザーごとに日付降順で取得（履歴表示・ストリーク計算用）",
+      "collectionGroup": "wakeLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

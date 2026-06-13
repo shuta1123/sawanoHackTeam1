@@ -1,0 +1,52 @@
+rules_version = '2';
+
+// Cloud Firestore セキュリティルール
+// 方針: 自分のデータ（userId == 認証UID）のみ読み書きできる。
+//       iPhone・PC は同一ユーザーとして認証されるため、両者ともこのルールで動く。
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 共通: 認証済みかつ本人か
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // alarms/{userId}: ドキュメントID = userId（1ユーザー1アラーム）
+    match /alarms/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidAlarm(request.resource.data);
+      allow delete: if isOwner(userId);
+    }
+
+    // wakeLogs/{logId}: data.userId で所有者を判定
+    match /wakeLogs/{logId} {
+      allow read: if request.auth != null
+        && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.userId
+        && isValidWakeLog(request.resource.data);
+      // 起床ログは履歴なので更新・削除は不可
+      allow update, delete: if false;
+    }
+
+    // alarm のバリデーション
+    function isValidAlarm(data) {
+      return data.time is string
+        && data.time.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && data.repeatDays is list
+        && data.status in ['scheduled', 'ringing', 'dismissed', 'failed']
+        && (data.dismissedAt == null || data.dismissedAt is string)
+        && data.updatedAt is string;
+    }
+
+    // wakeLog のバリデーション
+    function isValidWakeLog(data) {
+      return data.userId is string
+        && data.date is string
+        && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.wakeTime is string
+        && data.wakeTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && data.success is bool;
+    }
+  }
+}
