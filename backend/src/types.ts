@@ -47,8 +47,9 @@ export interface Alarm {
 }
 
 /**
- * wakeLogs/{autoId}
- * 起床履歴。1日1レコードを想定（同一 userId+date は上書きせず追記しない方針）。
+ * wakeLogs/{userId}_{date}
+ * 起床履歴。ドキュメントIDを userId+date で決め打ちし、1日1レコードを保証する
+ * （同一 userId+date は上書きせず、既存を優先する方針）。
  */
 export interface WakeLog {
   userId: string;
@@ -65,7 +66,18 @@ export function isValidTime(time: string): boolean {
   return /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time);
 }
 
-/** 日付文字列 "YYYY-MM-DD" の検証 */
+/**
+ * 日付文字列 "YYYY-MM-DD" の検証。
+ * 形式だけでなく実在する日付か（例: 2026-02-31 や 2026-99-99 を弾く）まで検証する。
+ */
 export function isValidDate(date: string): boolean {
-  return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date);
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)) return false;
+  const [y, m, d] = date.split("-").map(Number);
+  // UTC で組み立て、各要素が一致すれば実在する日付
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return (
+    dt.getUTCFullYear() === y &&
+    dt.getUTCMonth() === m - 1 &&
+    dt.getUTCDate() === d
+  );
 }

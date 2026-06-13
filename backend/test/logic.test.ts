@@ -90,4 +90,11 @@ test("バリデーション関数", () => {
   assert.equal(isValidTime("6:30"), false);
   assert.equal(isValidDate("2026-06-13"), true);
   assert.equal(isValidDate("2026/06/13"), false);
+  // 実在しない日付は弾く
+  assert.equal(isValidDate("2026-02-31"), false);
+  assert.equal(isValidDate("2026-99-99"), false);
+  assert.equal(isValidDate("2026-13-01"), false);
+  // うるう年判定
+  assert.equal(isValidDate("2024-02-29"), true);
+  assert.equal(isValidDate("2026-02-29"), false);
 });

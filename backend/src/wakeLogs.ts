@@ -6,8 +6,14 @@ import { type WakeLog, isValidDate, isValidTime } from "./types.js";
 
 const COLLECTION = "wakeLogs";
 
+/** ドキュメントIDを userId+date で決め打ちし、1日1レコードを原子的に保証する */
+function docId(userId: string, date: string): string {
+  return `${userId}_${date}`;
+}
+
 /**
  * 起床ログを記録する。
+ * ドキュメントID = `${userId}_${date}` に固定し、create() で原子的に作成する。
  * 同一 userId+date が既にある場合は重複作成せず既存を返す（1日1レコード）。
  */
 export async function recordWakeLog(log: WakeLog): Promise<WakeLog> {
@@ -18,18 +24,19 @@ export async function recordWakeLog(log: WakeLog): Promise<WakeLog> {
     throw new Error(`不正な時刻形式です: ${log.wakeTime}（"HH:mm"）`);
   }
 
-  const col = getDb().collection(COLLECTION);
-  const existing = await col
-    .where("userId", "==", log.userId)
-    .where("date", "==", log.date)
-    .limit(1)
-    .get();
-  if (!existing.empty) {
-    return existing.docs[0].data() as WakeLog;
+  const ref = getDb().collection(COLLECTION).doc(docId(log.userId, log.date));
+  try {
+    // create() は既存ドキュメントがあると ALREADY_EXISTS で失敗するため、
+    // 「存在確認→追加」のような競合の余地がなく原子的に1件を保証できる
+    await ref.create(log);
+    return log;
+  } catch (err) {
+    const snap = await ref.get();
+    if (snap.exists) {
+      return snap.data() as WakeLog; // 既に同日のログがある → 既存を返す
+    }
+    throw err; // それ以外のエラーは再送出
   }
-
-  await col.add(log);
-  return log;
 }
 
 /**

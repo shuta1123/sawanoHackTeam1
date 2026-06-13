@@ -30,20 +30,25 @@ service cloud.firestore {
     }
 
     // alarm のバリデーション
+    // フィールドを固定し、余計なキーや不正な曜日の書き込みを防ぐ
     function isValidAlarm(data) {
-      return data.time is string
+      return data.keys().hasOnly(['time', 'repeatDays', 'status', 'dismissedAt', 'updatedAt'])
+        && data.time is string
         && data.time.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
         && data.repeatDays is list
+        && data.repeatDays.hasOnly(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
         && data.status in ['scheduled', 'ringing', 'dismissed', 'failed']
         && (data.dismissedAt == null || data.dismissedAt is string)
         && data.updatedAt is string;
     }
 
     // wakeLog のバリデーション
+    // フィールドを固定し、date は月(01-12)・日(01-31)レンジまで検証する
     function isValidWakeLog(data) {
-      return data.userId is string
+      return data.keys().hasOnly(['userId', 'date', 'wakeTime', 'success'])
+        && data.userId is string
         && data.date is string
-        && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.date.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')
         && data.wakeTime is string
         && data.wakeTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
         && data.success is bool;
