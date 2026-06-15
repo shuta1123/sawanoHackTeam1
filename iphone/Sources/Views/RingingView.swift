@@ -42,8 +42,14 @@ struct RingingView: View {
             if status == .dismissed {
                 isDismissed = true
                 Task {
-                    // PC が QR 読取成功 → AlarmKit を停止し成功ログを記録
+                    // 現在の鳴動を止め、繰り返し設定があれば次回以降を再登録する
+                    // cancel() は同一 ID のアラームを完全削除するため、再登録が必要
                     try? await AlarmService.shared.cancel()
+                    if let a = alarm, !a.repeatDays.isEmpty {
+                        try? await AlarmService.shared.schedule(
+                            time: a.time, repeatDays: a.repeatDays, userId: userId
+                        )
+                    }
                     let log = WakeLog(
                         userId: userId,
                         date: todayString(),
@@ -216,7 +222,13 @@ struct RingingView: View {
     private func performFailure() async {
         do {
             try await firestoreService.markFailed(userId: userId)
+            // 現在の鳴動を止め、繰り返し設定があれば次回以降を再登録する
             try? await AlarmService.shared.cancel()
+            if let a = alarm, !a.repeatDays.isEmpty {
+                try? await AlarmService.shared.schedule(
+                    time: a.time, repeatDays: a.repeatDays, userId: userId
+                )
+            }
             let log = WakeLog(
                 userId: userId,
                 date: todayString(),
