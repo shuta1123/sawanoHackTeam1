@@ -220,7 +220,7 @@ struct RingingView: View {
 
     private func verifyEmergencyStop() {
         guard !isHandlingFailure else { return }
-        guard hashPassword(emergencyInput, userId: userId) == alarm?.emergencyPassword else {
+        guard hashPassword(emergencyInput, userId: userId) == loadEmergencyPassword(userId: userId) else {
             emergencyError = "パスワードが違います"
             return
         }

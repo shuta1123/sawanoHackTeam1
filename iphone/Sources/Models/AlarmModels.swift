@@ -1,5 +1,6 @@
 import Foundation
 import CommonCrypto
+import Security
 
 // MARK: - Helpers
 
@@ -26,6 +27,40 @@ func hashPassword(_ raw: String, userId: String) -> String {
     return derived.map { String(format: "%02hhx", $0) }.joined()
 }
 
+// MARK: - Keychain (Emergency Password)
+// emergencyPassword は Firestore に置かず端末の Keychain にのみ保存する。
+// バックエンドの Alarm 型 / firestore.rules と一致させるための措置。
+
+private let keychainService = "com.sawanohackteam1.alarmstop"
+
+func saveEmergencyPassword(_ hash: String, userId: String) {
+    let key = "ep_\(userId)"
+    let data = Data(hash.utf8)
+    let query: [CFString: Any] = [
+        kSecClass: kSecClassGenericPassword,
+        kSecAttrService: keychainService,
+        kSecAttrAccount: key,
+        kSecValueData: data
+    ]
+    SecItemDelete(query as CFDictionary)
+    SecItemAdd(query as CFDictionary, nil)
+}
+
+func loadEmergencyPassword(userId: String) -> String? {
+    let key = "ep_\(userId)"
+    let query: [CFString: Any] = [
+        kSecClass: kSecClassGenericPassword,
+        kSecAttrService: keychainService,
+        kSecAttrAccount: key,
+        kSecReturnData: true,
+        kSecMatchLimit: kSecMatchLimitOne
+    ]
+    var result: AnyObject?
+    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+          let data = result as? Data else { return nil }
+    return String(data: data, encoding: .utf8)
+}
+
 // MARK: - Enums
 
 enum AlarmStatus: String, Codable {
@@ -42,7 +77,8 @@ struct AlarmDocument: Codable {
     var status: AlarmStatus
     var dismissedAt: Date?
     var updatedAt: Date
-    var emergencyPassword: String
+    // emergencyPassword は Keychain に保存するため Firestore には書かない
+    // → backend/src/types.ts の Alarm 型・firestore.rules と一致
 
     /// Derived from time — not persisted in Firestore
     var shouldBeRinging: Bool {

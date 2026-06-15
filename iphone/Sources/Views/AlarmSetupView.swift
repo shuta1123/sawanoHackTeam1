@@ -18,9 +18,9 @@ struct AlarmSetupView: View {
 
     private var userId: String { authService.user?.uid ?? "" }
 
-    /// 新規入力または既存ハッシュのどちらかがあれば保存可能
+    /// 新規入力または Keychain に保存済みハッシュがあれば保存可能
     private var hasPassword: Bool {
-        !emergencyPassword.isEmpty || !(firestoreService.alarm?.emergencyPassword.isEmpty ?? true)
+        !emergencyPassword.isEmpty || loadEmergencyPassword(userId: userId) != nil
     }
 
     var body: some View {
@@ -133,11 +133,11 @@ struct AlarmSetupView: View {
         let timeString = formatter.string(from: selectedTime)
         let repeatDays = Array(selectedDays)
 
-        // 入力があれば新規ハッシュ化、なければ既存ハッシュを引き継ぐ
+        // 入力があれば新規ハッシュ化、なければ Keychain から引き継ぐ
         let passwordHash: String
         if !emergencyPassword.isEmpty {
             passwordHash = hashPassword(emergencyPassword, userId: userId)
-        } else if let existing = firestoreService.alarm?.emergencyPassword, !existing.isEmpty {
+        } else if let existing = loadEmergencyPassword(userId: userId) {
             passwordHash = existing
         } else {
             errorMessage = "パスワードを入力してください"
@@ -158,18 +158,19 @@ struct AlarmSetupView: View {
             return
         }
 
-        // 2. Firestore に保存
+        // 2. Firestore に保存（emergencyPassword は含めない）
         let alarm = AlarmDocument(
             time: timeString,
             repeatDays: repeatDays,
             status: .scheduled,
             dismissedAt: nil,
-            updatedAt: Date(),
-            emergencyPassword: passwordHash
+            updatedAt: Date()
         )
 
         do {
             try await firestoreService.saveAlarm(alarm, userId: userId)
+            // Firestore 保存成功後に Keychain へ書く
+            saveEmergencyPassword(passwordHash, userId: userId)
             dismiss()
         } catch {
             // Firestore 失敗時は AlarmKit もロールバック
