@@ -40,6 +40,11 @@ struct HomeView: View {
             )) {
                 RingingView()
             }
+            .alert("次回アラームの再登録に失敗", isPresented: $firestoreService.alarmScheduleError) {
+                Button("OK") {}
+            } message: {
+                Text("AlarmKit への再登録が失敗しました。\n設定画面でアラームを再設定してください。")
+            }
             .task {
                 try? await firestoreService.fetchWakeLogs(userId: userId)
             }

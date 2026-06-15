@@ -13,10 +13,8 @@ struct RingingView: View {
     @State private var isDismissed = false
     @State private var isFailed = false
     @State private var isHandlingFailure = false
-    @State private var scheduleFailedAfterCancel = false
 
     private var userId: String { authService.user?.uid ?? "" }
-    private var alarm: AlarmDocument? { firestoreService.alarm }
 
     var body: some View {
         ZStack {
@@ -40,36 +38,9 @@ struct RingingView: View {
             }
         }
         .onChange(of: firestoreService.alarm?.status) { _, status in
-            if status == .dismissed {
-                isDismissed = true
-                Task {
-                    // 現在の鳴動を止め、繰り返し設定があれば次回以降を再登録する
-                    // cancel() は同一 ID のアラームを完全削除するため、再登録が必要
-                    try? await AlarmService.shared.cancel()
-                    if let a = alarm, !a.repeatDays.isEmpty {
-                        do {
-                            try await AlarmService.shared.schedule(
-                                time: a.time, repeatDays: a.repeatDays, userId: userId
-                            )
-                        } catch {
-                            scheduleFailedAfterCancel = true
-                        }
-                    }
-                    let log = WakeLog(
-                        userId: userId,
-                        date: todayString(),
-                        wakeTime: currentTimeString(),
-                        success: true
-                    )
-                    try? await firestoreService.saveWakeLog(log)
-                }
-            }
-            if status == .failed { isFailed = true }
-        }
-        .alert("次回アラームの再登録に失敗", isPresented: $scheduleFailedAfterCancel) {
-            Button("OK") {}
-        } message: {
-            Text("AlarmKit への再登録が失敗しました。\n設定画面でアラームを再設定してください。")
+            // cancel / reschedule / wakeLog は FirestoreService のリスナーが担当
+            if status == .dismissed { isDismissed = true }
+            if status == .failed    { isFailed = true }
         }
         .sheet(isPresented: $showEmergencyStop) {
             emergencyStopSheet
@@ -232,39 +203,10 @@ struct RingingView: View {
     private func performFailure() async {
         do {
             try await firestoreService.markFailed(userId: userId)
-            // 現在の鳴動を止め、繰り返し設定があれば次回以降を再登録する
-            try? await AlarmService.shared.cancel()
-            if let a = alarm, !a.repeatDays.isEmpty {
-                do {
-                    try await AlarmService.shared.schedule(
-                        time: a.time, repeatDays: a.repeatDays, userId: userId
-                    )
-                } catch {
-                    scheduleFailedAfterCancel = true
-                }
-            }
-            let log = WakeLog(
-                userId: userId,
-                date: todayString(),
-                wakeTime: currentTimeString(),
-                success: false
-            )
-            try? await firestoreService.saveWakeLog(log)
+            // cancel / reschedule / wakeLog は FirestoreService のリスナーが担当
         } catch {
             print("[RingingView] markFailed error: \(error)")
         }
         isFailed = true
-    }
-
-    private func todayString() -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: Date())
-    }
-
-    private func currentTimeString() -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f.string(from: Date())
     }
 }

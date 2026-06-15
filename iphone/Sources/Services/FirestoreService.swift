@@ -5,6 +5,7 @@ import FirebaseFirestore
 final class FirestoreService: ObservableObject {
     @Published var alarm: AlarmDocument?
     @Published var wakeLogs: [WakeLog] = []
+    @Published var alarmScheduleError = false
 
     private let db = Firestore.firestore()
     private var alarmListener: ListenerRegistration?
@@ -20,15 +21,57 @@ final class FirestoreService: ObservableObject {
                 guard snapshot.exists else { return }
                 do {
                     let doc = try snapshot.data(as: AlarmDocument.self)
-                    // alarm を更新してからリセット判定する（.task より確実）
                     Task { @MainActor in
+                        let oldStatus = self.alarm?.status
                         self.alarm = doc
+                        // scheduled → dismissed/failed = アラーム解除フロー
+                        // View に依存せずここで処理することで、RingingView の
+                        // ライフサイクル（fullScreenCover の dismissal）と競合しない
+                        if oldStatus == .scheduled,
+                           doc.status == .dismissed || doc.status == .failed {
+                            await self.handleAlarmStopped(
+                                alarm: doc, userId: userId, success: doc.status == .dismissed
+                            )
+                        }
                         await self.resetIfNewDay(userId: userId)
                     }
                 } catch {
                     print("[Firestore] alarm decode error: \(error)")
                 }
             }
+    }
+
+    private func handleAlarmStopped(alarm: AlarmDocument, userId: String, success: Bool) async {
+        try? await AlarmService.shared.cancel()
+        if !alarm.repeatDays.isEmpty {
+            do {
+                try await AlarmService.shared.schedule(
+                    time: alarm.time, repeatDays: alarm.repeatDays, userId: userId
+                )
+            } catch {
+                alarmScheduleError = true
+            }
+        }
+        let log = WakeLog(
+            userId: userId,
+            date: nowDateString(),
+            wakeTime: nowTimeString(),
+            success: success
+        )
+        try? await saveWakeLog(log)
+        try? await fetchWakeLogs(userId: userId)
+    }
+
+    private func nowDateString() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
+    }
+
+    private func nowTimeString() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: Date())
     }
 
     func stopListening() {
