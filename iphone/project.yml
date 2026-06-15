@@ -1,0 +1,36 @@
+name: AlarmStop
+options:
+  bundleIdPrefix: com.sawanohackteam1
+  deploymentTarget:
+    iOS: "26.0"
+
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: "11.0.0"
+
+targets:
+  AlarmStop:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    resources:
+      - path: Resources/GoogleService-Info.plist
+    dependencies:
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+    info:
+      path: Info.plist
+      properties:
+        UILaunchScreen:
+          UIColorName: ""
+        NSAlarmKitUsageDescription: "起床アラームのQRコード解除に使用します"
+        UIBackgroundModes:
+          - fetch
+    entitlements:
+      path: AlarmStop.entitlements
+      properties:
+        com.apple.developer.alarmkit: true
