@@ -13,6 +13,7 @@ struct RingingView: View {
     @State private var isDismissed = false
     @State private var isFailed = false
     @State private var isHandlingFailure = false
+    @State private var scheduleFailedAfterCancel = false
 
     private var userId: String { authService.user?.uid ?? "" }
     private var alarm: AlarmDocument? { firestoreService.alarm }
@@ -46,9 +47,13 @@ struct RingingView: View {
                     // cancel() は同一 ID のアラームを完全削除するため、再登録が必要
                     try? await AlarmService.shared.cancel()
                     if let a = alarm, !a.repeatDays.isEmpty {
-                        try? await AlarmService.shared.schedule(
-                            time: a.time, repeatDays: a.repeatDays, userId: userId
-                        )
+                        do {
+                            try await AlarmService.shared.schedule(
+                                time: a.time, repeatDays: a.repeatDays, userId: userId
+                            )
+                        } catch {
+                            scheduleFailedAfterCancel = true
+                        }
                     }
                     let log = WakeLog(
                         userId: userId,
@@ -60,6 +65,11 @@ struct RingingView: View {
                 }
             }
             if status == .failed { isFailed = true }
+        }
+        .alert("次回アラームの再登録に失敗", isPresented: $scheduleFailedAfterCancel) {
+            Button("OK") {}
+        } message: {
+            Text("AlarmKit への再登録が失敗しました。\n設定画面でアラームを再設定してください。")
         }
         .sheet(isPresented: $showEmergencyStop) {
             emergencyStopSheet
@@ -225,9 +235,13 @@ struct RingingView: View {
             // 現在の鳴動を止め、繰り返し設定があれば次回以降を再登録する
             try? await AlarmService.shared.cancel()
             if let a = alarm, !a.repeatDays.isEmpty {
-                try? await AlarmService.shared.schedule(
-                    time: a.time, repeatDays: a.repeatDays, userId: userId
-                )
+                do {
+                    try await AlarmService.shared.schedule(
+                        time: a.time, repeatDays: a.repeatDays, userId: userId
+                    )
+                } catch {
+                    scheduleFailedAfterCancel = true
+                }
             }
             let log = WakeLog(
                 userId: userId,

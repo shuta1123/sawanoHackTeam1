@@ -21,18 +21,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // GoogleService-Info.plist がプレースホルダーのままだと Firebase 初期化が無意味に失敗する。
-        // 必須キー全体を確認し、1つでも REPLACE_ME が残っていたら明確なエラーで止める。
+        // plist が見つからない、読めない、必須キーが欠落/空/REPLACE_ME のいずれでも早期 fatalError。
         let requiredFirebaseKeys = [
             "API_KEY", "GOOGLE_APP_ID", "PROJECT_ID", "GCM_SENDER_ID", "STORAGE_BUCKET"
         ]
-        if let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
-           let dict = NSDictionary(contentsOfFile: path) as? [String: Any],
-           requiredFirebaseKeys.contains(where: { dict[$0] as? String == "REPLACE_ME" }) {
+        guard
+            let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+            let dict = NSDictionary(contentsOfFile: path) as? [String: Any],
+            requiredFirebaseKeys.allSatisfy({
+                guard let value = dict[$0] as? String, !value.isEmpty else { return false }
+                return value != "REPLACE_ME"
+            })
+        else {
             fatalError("""
-            [AlarmStop] GoogleService-Info.plist がプレースホルダーのままです。
+            [AlarmStop] GoogleService-Info.plist が未設定または不正です。
             Firebase Console (https://console.firebase.google.com/) から
             iOS アプリ用の plist を取得し、iphone/Resources/ に配置してください。
+            (必須キー: \(requiredFirebaseKeys.joined(separator: ", ")))
             """)
         }
         FirebaseApp.configure()
