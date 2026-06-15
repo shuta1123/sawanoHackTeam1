@@ -41,9 +41,7 @@ struct HomeView: View {
                 RingingView()
             }
             .task {
-                let uid = userId
-                try? await firestoreService.fetchWakeLogs(userId: uid)
-                await firestoreService.resetIfNewDay(userId: uid)
+                try? await firestoreService.fetchWakeLogs(userId: userId)
             }
         }
     }

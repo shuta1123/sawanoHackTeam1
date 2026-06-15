@@ -1,11 +1,29 @@
 import Foundation
-import CryptoKit
+import CommonCrypto
 
 // MARK: - Helpers
 
-func hashPassword(_ raw: String) -> String {
-    let digest = SHA256.hash(data: Data(raw.utf8))
-    return digest.map { String(format: "%02hhx", $0) }.joined()
+/// PBKDF2-SHA256 (100,000 iterations) で userId を salt にして stretch する。
+/// salt なし SHA-256 より辞書攻撃耐性が大幅に向上する。
+func hashPassword(_ raw: String, userId: String) -> String {
+    let passwordData = Data(raw.utf8)
+    let saltData = Data((userId + ".alarmstop-v1").utf8)
+    var derived = [UInt8](repeating: 0, count: 32)
+    passwordData.withUnsafeBytes { pwPtr in
+        saltData.withUnsafeBytes { saltPtr in
+            _ = CCKeyDerivationPBKDF(
+                CCPBKDFAlgorithm(kCCPBKDF2),
+                pwPtr.baseAddress?.assumingMemoryBound(to: CChar.self),
+                passwordData.count,
+                saltPtr.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                saltData.count,
+                CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+                100_000,
+                &derived, 32
+            )
+        }
+    }
+    return derived.map { String(format: "%02hhx", $0) }.joined()
 }
 
 // MARK: - Enums

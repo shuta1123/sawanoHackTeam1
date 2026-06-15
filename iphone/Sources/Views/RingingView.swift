@@ -39,8 +39,21 @@ struct RingingView: View {
             }
         }
         .onChange(of: firestoreService.alarm?.status) { _, status in
-            if status == .dismissed { isDismissed = true }
-            if status == .failed    { isFailed = true }
+            if status == .dismissed {
+                isDismissed = true
+                Task {
+                    // PC が QR 読取成功 → AlarmKit を停止し成功ログを記録
+                    try? await AlarmService.shared.cancel()
+                    let log = WakeLog(
+                        userId: userId,
+                        date: todayString(),
+                        wakeTime: currentTimeString(),
+                        success: true
+                    )
+                    try? await firestoreService.saveWakeLog(log)
+                }
+            }
+            if status == .failed { isFailed = true }
         }
         .sheet(isPresented: $showEmergencyStop) {
             emergencyStopSheet
@@ -191,7 +204,7 @@ struct RingingView: View {
 
     private func verifyEmergencyStop() {
         guard !isHandlingFailure else { return }
-        guard hashPassword(emergencyInput) == alarm?.emergencyPassword else {
+        guard hashPassword(emergencyInput, userId: userId) == alarm?.emergencyPassword else {
             emergencyError = "パスワードが違います"
             return
         }

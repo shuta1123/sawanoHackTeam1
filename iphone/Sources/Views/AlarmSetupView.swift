@@ -136,7 +136,7 @@ struct AlarmSetupView: View {
         // 入力があれば新規ハッシュ化、なければ既存ハッシュを引き継ぐ
         let passwordHash: String
         if !emergencyPassword.isEmpty {
-            passwordHash = hashPassword(emergencyPassword)
+            passwordHash = hashPassword(emergencyPassword, userId: userId)
         } else if let existing = firestoreService.alarm?.emergencyPassword, !existing.isEmpty {
             passwordHash = existing
         } else {

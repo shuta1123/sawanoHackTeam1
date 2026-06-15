@@ -20,7 +20,11 @@ final class FirestoreService: ObservableObject {
                 guard snapshot.exists else { return }
                 do {
                     let doc = try snapshot.data(as: AlarmDocument.self)
-                    Task { @MainActor in self.alarm = doc }
+                    // alarm を更新してからリセット判定する（.task より確実）
+                    Task { @MainActor in
+                        self.alarm = doc
+                        await self.resetIfNewDay(userId: userId)
+                    }
                 } catch {
                     print("[Firestore] alarm decode error: \(error)")
                 }
