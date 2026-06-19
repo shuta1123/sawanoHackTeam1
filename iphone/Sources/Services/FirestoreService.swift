@@ -52,13 +52,17 @@ final class FirestoreService: ObservableObject {
                 alarmScheduleError = true
             }
         }
-        let log = WakeLog(
-            userId: userId,
-            date: nowDateString(),
-            wakeTime: nowTimeString(),
-            success: success
-        )
-        try? await saveWakeLog(log)
+        // dismissed (success=true) の wakeLog は PC 側 (POST /api/alarm/dismiss) が書くため iPhone は書かない
+        // failed (success=false) は iPhone 側のみが検知できるためここで記録する
+        if !success {
+            let log = WakeLog(
+                userId: userId,
+                date: nowDateString(),
+                wakeTime: nowTimeString(),
+                success: false
+            )
+            try? await saveWakeLog(log)
+        }
         try? await fetchWakeLogs(userId: userId)
     }
 
