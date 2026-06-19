@@ -1,0 +1,25 @@
+{
+  "name": "@sawano/backend",
+  "version": "0.1.0",
+  "description": "QRアラーム — Firebase バックエンド（Firestore データアクセス層）",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "emulator": "firebase emulators:start --only auth,firestore",
+    "seed": "tsx scripts/seed.ts",
+    "test": "firebase emulators:exec --only firestore \"tsx --test test/*.test.ts\""
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "firebase-tools": "^13.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

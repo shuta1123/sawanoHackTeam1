@@ -29,3 +29,22 @@ Podfile.lock
 
 # Node / Firebase CLI
 node_modules/
+dist/
+*.log
+npm-debug.log*
+
+# Firebase
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+*-debug.log
+
+# 環境変数・認証情報
+.env
+.env.*
+serviceAccountKey.json
+**/serviceAccount*.json
+
+# Claude Code 作業メモ（コミットしない）
+CLAUDE.md
