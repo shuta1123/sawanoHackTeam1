@@ -10,6 +10,14 @@ packages:
     from: "11.0.0"
 
 targets:
+  AlarmStopTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    dependencies:
+      - target: AlarmStop
+
   AlarmStop:
     type: application
     platform: iOS

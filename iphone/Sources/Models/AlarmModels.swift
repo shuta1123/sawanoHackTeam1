@@ -80,24 +80,23 @@ struct AlarmDocument: Codable {
     // emergencyPassword は Keychain に保存するため Firestore には書かない
     // → backend/src/types.ts の Alarm 型・firestore.rules と一致
 
-    /// Derived from time — not persisted in Firestore
-    var shouldBeRinging: Bool {
+    /// テスト可能な実装。`date` を外から注入できる。
+    func isRinging(at date: Date) -> Bool {
         guard status == .scheduled else { return false }
-        guard repeatDays.contains(todayWeekdayCode()) else { return false }
+        let codes = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+        let dayCode = codes[Calendar.current.component(.weekday, from: date) - 1]
+        guard repeatDays.contains(dayCode) else { return false }
         let parts = time.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2 else { return false }
-        let now = Calendar.current.dateComponents([.hour, .minute], from: Date())
-        guard let nowH = now.hour, let nowM = now.minute else { return false }
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: date)
+        guard let nowH = comps.hour, let nowM = comps.minute else { return false }
         let alarmMins = parts[0] * 60 + parts[1]
         let nowMins = nowH * 60 + nowM
         return nowMins >= alarmMins && nowMins < alarmMins + 10
     }
 
-    private func todayWeekdayCode() -> String {
-        let codes = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
-        let idx = Calendar.current.component(.weekday, from: Date()) - 1
-        return codes[idx]
-    }
+    /// Derived from time — not persisted in Firestore
+    var shouldBeRinging: Bool { isRinging(at: Date()) }
 }
 
 struct WakeLog: Codable, Identifiable {
@@ -107,6 +106,34 @@ struct WakeLog: Codable, Identifiable {
     let success: Bool
 
     var id: String { date }
+}
+
+// MARK: - Pure Functions (テスト可能)
+
+/// ストリーク計算。Firebase 不要のため単体テストで直接呼べる。
+func calculateStreak(from logs: [WakeLog], referenceDate: Date = Date()) -> Int {
+    let sorted = logs
+        .filter { $0.success }
+        .sorted { $0.date > $1.date }
+    var streak = 0
+    let calendar = Calendar.current
+    var expected = calendar.startOfDay(for: referenceDate)
+    for log in sorted {
+        guard let logDate = parseWakeLogDate(log.date) else { break }
+        if calendar.isDate(logDate, inSameDayAs: expected) {
+            streak += 1
+            expected = calendar.date(byAdding: .day, value: -1, to: expected) ?? expected
+        } else {
+            break
+        }
+    }
+    return streak
+}
+
+func parseWakeLogDate(_ string: String) -> Date? {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd"
+    return f.date(from: string)
 }
 
 // MARK: - UI Helpers

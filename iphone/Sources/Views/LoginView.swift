@@ -88,6 +88,20 @@ struct LoginView: View {
                         .foregroundStyle(.orange)
                 }
 
+                // デバッグ用: Firebase 未設定時のみ表示
+                #if DEBUG
+                if authService.debugUserId == nil {
+                    Button {
+                        Task { await authService.signIn(email: "debug@alarmstop.local", password: "debug1234") }
+                    } label: {
+                        Text("🛠 デバッグログイン")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 4)
+                    }
+                }
+                #endif
+
                 Spacer()
             }
             .padding(.horizontal, 24)

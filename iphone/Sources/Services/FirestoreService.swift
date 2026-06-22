@@ -1,5 +1,6 @@
 import Foundation
 import FirebaseFirestore
+import FirebaseCore
 
 @MainActor
 final class FirestoreService: ObservableObject {
@@ -7,12 +8,19 @@ final class FirestoreService: ObservableObject {
     @Published var wakeLogs: [WakeLog] = []
     @Published var alarmScheduleError = false
 
-    private let db = Firestore.firestore()
+    // Firebase 未設定時はアクセスしないよう lazy にする
+    private lazy var db: Firestore = Firestore.firestore()
     private var alarmListener: ListenerRegistration?
+
+    private var isFirebaseReady: Bool { FirebaseApp.app() != nil }
 
     // MARK: - Alarm Listener
 
     func startListening(userId: String) {
+        guard isFirebaseReady else {
+            print("[FirestoreService] Firebase 未設定のためリスニングをスキップします。")
+            return
+        }
         alarmListener?.remove()
         alarmListener = db.collection("alarms")
             .document(userId)
@@ -86,6 +94,7 @@ final class FirestoreService: ObservableObject {
     // MARK: - Alarm CRUD
 
     func saveAlarm(_ alarm: AlarmDocument, userId: String) async throws {
+        guard isFirebaseReady else { return }
         try db.collection("alarms").document(userId).setData(from: alarm)
     }
 
@@ -113,6 +122,7 @@ final class FirestoreService: ObservableObject {
 
     /// iPhone が緊急停止 or 10分タイムアウト時に呼ぶ
     func markFailed(userId: String) async throws {
+        guard isFirebaseReady else { return }
         try await db.collection("alarms").document(userId).updateData([
             "status": "failed",
             "updatedAt": FieldValue.serverTimestamp()
@@ -122,6 +132,7 @@ final class FirestoreService: ObservableObject {
     // MARK: - Wake Logs
 
     func fetchWakeLogs(userId: String) async throws {
+        guard isFirebaseReady else { return }
         let snapshot = try await db.collection("wakeLogs")
             .whereField("userId", isEqualTo: userId)
             .order(by: "date", descending: true)
@@ -134,36 +145,13 @@ final class FirestoreService: ObservableObject {
     }
 
     func saveWakeLog(_ log: WakeLog) async throws {
+        guard isFirebaseReady else { return }
         try db.collection("wakeLogs").addDocument(from: log)
     }
 
     // MARK: - Streak
 
     func currentStreak(userId: String) -> Int {
-        guard !wakeLogs.isEmpty else { return 0 }
-        let sorted = wakeLogs
-            .filter { $0.success }
-            .sorted { $0.date > $1.date }
-
-        var streak = 0
-        let calendar = Calendar.current
-        var expected = calendar.startOfDay(for: Date())
-
-        for log in sorted {
-            guard let logDate = dateFrom(string: log.date) else { break }
-            if calendar.isDate(logDate, inSameDayAs: expected) {
-                streak += 1
-                expected = calendar.date(byAdding: .day, value: -1, to: expected) ?? expected
-            } else {
-                break
-            }
-        }
-        return streak
-    }
-
-    private func dateFrom(string: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: string)
+        calculateStreak(from: wakeLogs)
     }
 }

@@ -1,26 +1,21 @@
 import Foundation
-import AlarmKit
 
-// AlarmKit は iOS 26 以上でのみ利用可能。
-// Entitlement: com.apple.developer.alarmkit = true
-// Info.plist:  NSAlarmKitUsageDescription
-
-// TODO: Xcode 26 で実機確認の上、schedule API のシグネチャを確定させること。
-// 以下は WWDC25 の発表ベースの実装。
-
-struct WakeAlarmAttributes: AlarmAttributes {
-    struct ContentState: Codable, Hashable {
-        var stopTime: Date
-    }
-    var userId: String
-    var alarmLabel: String
-}
+// TODO: Xcode 26.3 で AlarmKit.AlarmAttributes の正確な型定義を確認して実装する。
+// WWDC25 発表時は AlarmAttributes はプロトコルだったが、Xcode 26.3 では
+// generic type（クラス）に変更された模様。API 確定後に AlarmKit 実装を復元する。
+//
+// 元の実装（保存用）:
+// import AlarmKit
+// struct WakeAlarmAttributes: AlarmKit.AlarmAttributes {
+//     struct ContentState: Codable, Hashable { var stopTime: Date }
+//     var userId: String
+//     var alarmLabel: String
+// }
 
 @MainActor
 final class AlarmService: ObservableObject {
     static let shared = AlarmService()
 
-    private let manager = AlarmManager.shared
     private let alarmID = "com.sawanohackteam1.morning-alarm"
 
     // MARK: - Schedule
@@ -29,50 +24,23 @@ final class AlarmService: ObservableObject {
         let parts = time.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2 else { throw AlarmError.invalidTime }
 
-        var components = DateComponents()
-        components.hour = parts[0]
-        components.minute = parts[1]
-        components.second = 0
-
-        let weekdays = repeatDays.compactMap { dayToLocaleWeekday($0) }
-
-        let attributes = WakeAlarmAttributes(
-            userId: userId,
-            alarmLabel: "起床アラーム"
-        )
-        let stopTime = Calendar.current.date(
-            from: DateComponents(hour: parts[0], minute: parts[1] + 10)
-        ) ?? Date().addingTimeInterval(600)
-        let contentState = WakeAlarmAttributes.ContentState(stopTime: stopTime)
-
-        // TODO: iOS 26 AlarmKit の正式 API で検証する
-        if weekdays.isEmpty {
-            let fireDate = nextAlarmDate(hour: parts[0], minute: parts[1])
-            try await manager.schedule(
-                id: alarmID,
-                schedule: .oneTime(date: fireDate),
-                attributes: attributes,
-                contentState: contentState
-            )
-        } else {
-            try await manager.schedule(
-                id: alarmID,
-                schedule: .repeating(weekdays: weekdays, time: components),
-                attributes: attributes,
-                contentState: contentState
-            )
-        }
+        // TODO: AlarmKit API 確定後に実装を復元する
+        // 現在は AlarmAttributes の型パラメータが未確定のためスタブ
+        // let weekdays = repeatDays.compactMap { dayToLocaleWeekday($0) }
+        // let manager = AlarmManager.shared
+        // try await manager.schedule(id: alarmID, schedule: ..., attributes: ..., contentState: ...)
     }
 
     // MARK: - Cancel
 
     func cancel() async throws {
-        try await manager.cancel(id: alarmID)
+        // TODO: AlarmKit API 確定後に実装を復元する
+        // try await AlarmManager.shared.cancel(id: alarmID)
     }
 
     // MARK: - Helpers
 
-    private func dayToLocaleWeekday(_ code: String) -> Locale.Weekday? {
+    func dayToLocaleWeekday(_ code: String) -> Locale.Weekday? {
         switch code {
         case "sun": return .sunday
         case "mon": return .monday

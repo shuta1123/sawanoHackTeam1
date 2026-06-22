@@ -8,7 +8,7 @@ struct HomeView: View {
     @State private var showHistory = false
 
     private var alarm: AlarmDocument? { firestoreService.alarm }
-    private var userId: String { authService.user?.uid ?? "" }
+    private var userId: String { authService.currentUserId ?? "" }
 
     var body: some View {
         NavigationStack {

@@ -6,12 +6,12 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if authService.user == nil {
+            if !authService.isLoggedIn {
                 LoginView()
             } else {
                 HomeView()
                     .onAppear {
-                        guard let uid = authService.user?.uid else { return }
+                        guard let uid = authService.currentUserId else { return }
                         firestoreService.startListening(userId: uid)
                     }
                     .onDisappear {
@@ -19,6 +19,6 @@ struct ContentView: View {
                     }
             }
         }
-        .animation(.easeInOut, value: authService.user?.uid)
+        .animation(.easeInOut, value: authService.currentUserId)
     }
 }
