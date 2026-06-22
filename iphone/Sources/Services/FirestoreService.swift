@@ -1,6 +1,7 @@
 import Foundation
 import FirebaseFirestore
 import FirebaseCore
+import FirebaseAuth
 
 @MainActor
 final class FirestoreService: ObservableObject {
@@ -12,7 +13,12 @@ final class FirestoreService: ObservableObject {
     private lazy var db: Firestore = Firestore.firestore()
     private var alarmListener: ListenerRegistration?
 
-    private var isFirebaseReady: Bool { FirebaseApp.app() != nil }
+    /// Firebase 初期化済みの場合に true
+    /// デバッグログイン（user001）でも Firestore に接続する
+    /// ※ Firestore rules で user001 は認証不要でアクセス可能に設定済み
+    private var isFirebaseReady: Bool {
+        FirebaseApp.app() != nil
+    }
 
     // MARK: - Debug Mock Data
 

@@ -11,20 +11,27 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    // デバッグ用: user001 は認証不要でアクセス可能（ハッカソンデモ用）
+    function isDebugUser(userId) {
+      return userId == "user001";
+    }
+
     // alarms/{userId}: ドキュメントID = userId（1ユーザー1アラーム）
     match /alarms/{userId} {
-      allow read: if isOwner(userId);
-      allow create, update: if isOwner(userId) && isValidAlarm(request.resource.data);
-      allow delete: if isOwner(userId);
+      allow read: if isDebugUser(userId) || isOwner(userId);
+      allow create, update: if isDebugUser(userId)
+        || (isOwner(userId) && isValidAlarm(request.resource.data));
+      allow delete: if isDebugUser(userId) || isOwner(userId);
     }
 
     // wakeLogs/{logId}: data.userId で所有者を判定
     match /wakeLogs/{logId} {
-      allow read: if request.auth != null
-        && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null
-        && request.auth.uid == request.resource.data.userId
-        && isValidWakeLog(request.resource.data);
+      allow read: if isDebugUser(resource.data.userId)
+        || (request.auth != null && request.auth.uid == resource.data.userId);
+      allow create: if isDebugUser(request.resource.data.userId)
+        || (request.auth != null
+          && request.auth.uid == request.resource.data.userId
+          && isValidWakeLog(request.resource.data));
       // 起床ログは履歴なので更新・削除は不可
       allow update, delete: if false;
     }
