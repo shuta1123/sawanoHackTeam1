@@ -1,0 +1,59 @@
+/*
+  デザインのテーマ: 「夜明け前の寝室から、朝日が昇るまで」
+  - ベースは寝室を思わせる暗い夜空色（あえてWebでよくある「黒背景+単色ネオン」にはせず、
+    暖色のオフホワイト・テキストと2系統のアクセント色を組み合わせている）
+  - 起床に成功した瞬間（QR解除成功）だけ、唯一のサイン要素として朝日色が差し込む設計
+    （QRScanner.module.css の .horizon を参照）
+*/
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap');
+
+:root {
+  --bg: #0b0e1a;             /* 夜明け前の暗い背景 */
+  --bg-elevated: #131726;    /* カード等、背景より少し明るい面 */
+  --border: rgba(244, 241, 234, 0.08);
+  --text-primary: #f4f1ea;   /* 暖色寄りのオフホワイト */
+  --text-secondary: #8a90a3;
+  --accent-sunrise: #ff8a3d; /* 起床成功・主要アクション = 朝日の色 */
+  --accent-teal: #4fd1c5;    /* 補助情報（予定・履歴・鳴動中）= 落ち着いた朝の空気 */
+  --danger: #e2574c;         /* failed状態 */
+
+  --font-display: 'Space Grotesk', 'Hiragino Sans', sans-serif;
+  --font-body: 'Inter', 'Hiragino Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100vh;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* キーボード操作時のフォーカスを明示する（アクセシビリティ対応） */
+:focus-visible {
+  outline: 2px solid var(--accent-sunrise);
+  outline-offset: 2px;
+}
+
+/* モーション低減設定のユーザーには、アニメーションをほぼ無効化する */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
