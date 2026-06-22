@@ -31,6 +31,9 @@ service cloud.firestore {
 
     // alarm のバリデーション
     // フィールドを固定し、余計なキーや不正な曜日の書き込みを防ぐ
+    //
+    // updatedAt / dismissedAt は iOS SDK が Timestamp を書き、PC/backend が ISO string を書くため
+    // 両方の型を受け入れる。Firestore Security Rules では timestamp 型は `is timestamp` で判定できる。
     function isValidAlarm(data) {
       return data.keys().hasOnly(['time', 'repeatDays', 'status', 'dismissedAt', 'updatedAt'])
         && data.time is string
@@ -38,8 +41,8 @@ service cloud.firestore {
         && data.repeatDays is list
         && data.repeatDays.hasOnly(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
         && data.status in ['scheduled', 'ringing', 'dismissed', 'failed']
-        && (data.dismissedAt == null || data.dismissedAt is string)
-        && data.updatedAt is string;
+        && (data.dismissedAt == null || data.dismissedAt is string || data.dismissedAt is timestamp)
+        && (data.updatedAt is string || data.updatedAt is timestamp);
     }
 
     // wakeLog のバリデーション

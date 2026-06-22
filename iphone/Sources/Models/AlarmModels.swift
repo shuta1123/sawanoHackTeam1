@@ -83,9 +83,12 @@ struct AlarmDocument: Codable {
     /// テスト可能な実装。`date` を外から注入できる。
     func isRinging(at date: Date) -> Bool {
         guard status == .scheduled else { return false }
-        let codes = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
-        let dayCode = codes[Calendar.current.component(.weekday, from: date) - 1]
-        guard repeatDays.contains(dayCode) else { return false }
+        // repeatDays が空 = 単発アラーム。曜日チェックをスキップする。
+        if !repeatDays.isEmpty {
+            let codes = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+            let dayCode = codes[Calendar.current.component(.weekday, from: date) - 1]
+            guard repeatDays.contains(dayCode) else { return false }
+        }
         let parts = time.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2 else { return false }
         let comps = Calendar.current.dateComponents([.hour, .minute], from: date)
