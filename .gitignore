@@ -1,7 +1,33 @@
-# Claude Code 作業メモ（コミットしない）
-CLAUDE.md
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
 
-# Node
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+!*.xcodeproj/project.xcworkspace/xcshareddata/
+xcuserdata/
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Node / Firebase CLI
 node_modules/
 dist/
 *.log
@@ -20,5 +46,5 @@ ui-debug.log*
 serviceAccountKey.json
 **/serviceAccount*.json
 
-# OS
-.DS_Store
+# Claude Code 作業メモ（コミットしない）
+CLAUDE.md

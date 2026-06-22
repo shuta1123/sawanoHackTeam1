@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Firebase Console (https://console.firebase.google.com/) でプロジェクトを作成し、
+        iOS アプリ (Bundle ID: com.sawanohackteam1.AlarmStop) を追加して
+        取得した GoogleService-Info.plist でこのファイルを丸ごと差し替えてください。
+    -->
+    <key>API_KEY</key>
+    <string>REPLACE_ME</string>
+    <key>GCM_SENDER_ID</key>
+    <string>REPLACE_ME</string>
+    <key>PLIST_VERSION</key>
+    <string>1</string>
+    <key>BUNDLE_ID</key>
+    <string>com.sawanohackteam1.AlarmStop</string>
+    <key>PROJECT_ID</key>
+    <string>REPLACE_ME</string>
+    <key>STORAGE_BUCKET</key>
+    <string>REPLACE_ME</string>
+    <key>IS_ADS_ENABLED</key>
+    <false/>
+    <key>IS_ANALYTICS_ENABLED</key>
+    <false/>
+    <key>IS_APPINVITE_ENABLED</key>
+    <true/>
+    <key>IS_GCM_ENABLED</key>
+    <true/>
+    <key>IS_SIGNIN_ENABLED</key>
+    <true/>
+    <key>GOOGLE_APP_ID</key>
+    <string>REPLACE_ME</string>
+</dict>
+</plist>
