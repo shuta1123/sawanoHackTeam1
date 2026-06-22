@@ -5,7 +5,6 @@
 // Firebase 未設定時（isFirebaseReady === false）はモックデータを返すデバッグモードで動作する。
 
 import { db, isFirebaseReady } from './firebaseAdmin';
-import { FieldPath } from 'firebase-admin/firestore';
 import { Alarm, WakeLog } from './types';
 
 const ALARMS_COLLECTION = 'alarms';
@@ -77,12 +76,9 @@ export async function dismissAlarm(userId: string): Promise<{ dismissedAt: strin
 /**
  * 起床ログ(wakeLogs)を1件記録する。
  *
- * ドキュメントIDを `${userId}_${date}` にしているのは2つ理由がある:
- *  1) 同じ日に複数回QRを読み取っても上書きになり、重複レコードが増えない
- *  2) ドキュメントIDの前方一致で履歴一覧を取得できるため、
- *     Firestoreの複合インデックス作成が不要になる（listWakeLogs参照）
- *
- * success は常に true で記録する。
+ * ドキュメントIDを `${userId}_${date}` にし、create() で原子的に作成する。
+ * 同一 userId+date が既にある場合は既存を返す（1日1レコード保証）。
+ * success は常に true で記録する（failed の場合は iPhone 側が書く）。
  */
 export async function recordWakeLog(userId: string, wakeTimeIso: string): Promise<WakeLog> {
   const date = wakeTimeIso.slice(0, 10); // "YYYY-MM-DD"
@@ -105,36 +101,81 @@ export async function recordWakeLog(userId: string, wakeTimeIso: string): Promis
     return log;
   }
 
-  await db!.collection(WAKE_LOGS_COLLECTION).doc(`${userId}_${date}`).set(log);
+  const ref = db!.collection(WAKE_LOGS_COLLECTION).doc(`${userId}_${date}`);
+  try {
+    // create() は既存ドキュメントがあると ALREADY_EXISTS で失敗するため、
+    // 原子的に「1日1レコード」を保証できる（バックエンドと同じアプローチ）。
+    await ref.create(log);
+  } catch {
+    // 同日のログが既に存在する場合は既存を返す
+    const snap = await ref.get();
+    if (snap.exists) return snap.data() as WakeLog;
+    throw new Error(`wakeLogs への書き込みに失敗しました: userId=${userId}, date=${date}`);
+  }
   return log;
 }
 
 /**
  * 起床履歴を新しい日付順に取得する（ダッシュボードの履歴表示用）。
  *
- * userId による絞り込みを「ドキュメントIDの前方一致」で行うことで、
- * where('userId','==',...).orderBy('date',...) のような複合インデックスを
- * 作らずに済むようにしている（ハッカソンの開発スピード優先のための工夫）。
- * 本格運用する場合は複合インデックスを作成し、通常のwhere+orderByに置き換えても良い。
+ * バックエンド（backend/src/wakeLogs.ts）と同じ where+orderBy クエリを使用。
+ * firestore.indexes.json に複合インデックス（userId ASC, date DESC）が必要。
  */
 export async function listWakeLogs(userId: string, limit = 14): Promise<WakeLog[]> {
   if (!isFirebaseReady) {
-    return debugWakeLogs.slice(0, limit);
+    return debugWakeLogs.filter((l) => l.userId === userId).slice(0, limit);
   }
-
-  const start = `${userId}_`;
-  const end = `${userId}_`; //  はUnicode上ほぼ最大の文字。前方一致検索の定番テクニック
 
   const snap = await db!
     .collection(WAKE_LOGS_COLLECTION)
-    .orderBy(FieldPath.documentId())
-    .startAt(start)
-    .endAt(end)
+    .where('userId', '==', userId)
+    .orderBy('date', 'desc')
+    .limit(limit)
     .get();
 
-  const logs = snap.docs.map((d) => d.data() as WakeLog);
+  return snap.docs.map((d) => d.data() as WakeLog);
+}
 
-  // ドキュメントID昇順 = 日付昇順（"YYYY-MM-DD"は文字列としても時系列順に並ぶ）なので、
-  // 新しい順にしたいダッシュボード表示用に反転させてから件数を絞る。
-  return logs.reverse().slice(0, limit);
+/**
+ * 連続起床成功日数（ストリーク）を計算する。
+ * 直近から遡って success=true が続く日数を返す。
+ *
+ * @param logs listWakeLogs の戻り値（日付降順）
+ * @param today 起点の日付 "YYYY-MM-DD"
+ */
+export function calcStreak(logs: WakeLog[], today: string): number {
+  if (logs.length === 0) return 0;
+
+  const byDate = new Map<string, WakeLog>();
+  for (const log of logs) byDate.set(log.date, log);
+
+  let streak = 0;
+  const cursor = parseLocalDate(today);
+
+  // 今日または昨日から始まらない場合は 0（今朝まだ起きていない場合を許容）
+  if (!byDate.has(formatDate(cursor))) {
+    cursor.setDate(cursor.getDate() - 1);
+    if (!byDate.has(formatDate(cursor))) return 0;
+  }
+
+  while (true) {
+    const key = formatDate(cursor);
+    const log = byDate.get(key);
+    if (!log || !log.success) break;
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function parseLocalDate(date: string): Date {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
