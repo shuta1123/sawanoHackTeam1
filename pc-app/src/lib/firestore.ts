@@ -22,9 +22,9 @@ const _debugAlarmDefault: Alarm = {
 const debugAlarms: Map<string, Alarm> = new Map();
 
 const debugWakeLogs: WakeLog[] = [
-  { userId: 'debug-user', date: '2026-06-20', wakeTime: '06:58', success: true },
-  { userId: 'debug-user', date: '2026-06-19', wakeTime: '07:03', success: true },
-  { userId: 'debug-user', date: '2026-06-18', wakeTime: '07:11', success: false },
+  { userId: 'user001', date: '2026-06-20', wakeTime: '06:58', success: true },
+  { userId: 'user001', date: '2026-06-19', wakeTime: '07:03', success: true },
+  { userId: 'user001', date: '2026-06-18', wakeTime: '07:11', success: false },
 ];
 
 /**

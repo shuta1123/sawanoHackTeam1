@@ -14,11 +14,41 @@ final class FirestoreService: ObservableObject {
 
     private var isFirebaseReady: Bool { FirebaseApp.app() != nil }
 
+    // MARK: - Debug Mock Data
+
+    /// Firebase 未設定時に使うモックアラーム。
+    /// PC 側のデバッグモードと同様に、デモ・開発用のデータを提供する。
+    private static func makeMockAlarm() -> AlarmDocument {
+        // 現在時刻から2分後をアラーム時刻にすることで、
+        // アプリ起動直後に RingingView の動作確認ができる。
+        let now = Date()
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.hour, .minute], from: now.addingTimeInterval(2 * 60))
+        let h = String(format: "%02d", comps.hour ?? 7)
+        let m = String(format: "%02d", comps.minute ?? 0)
+        return AlarmDocument(
+            time: "\(h):\(m)",
+            repeatDays: [],          // 単発アラーム
+            status: .scheduled,
+            dismissedAt: nil,
+            updatedAt: now
+        )
+    }
+
+    private static let mockWakeLogs: [WakeLog] = [
+        WakeLog(userId: "user001", date: "2026-06-20", wakeTime: "06:58", success: true),
+        WakeLog(userId: "user001", date: "2026-06-19", wakeTime: "07:03", success: true),
+        WakeLog(userId: "user001", date: "2026-06-18", wakeTime: "07:11", success: false),
+    ]
+
     // MARK: - Alarm Listener
 
     func startListening(userId: String) {
         guard isFirebaseReady else {
-            print("[FirestoreService] Firebase 未設定のためリスニングをスキップします。")
+            print("[FirestoreService] Firebase 未設定のためデバッグモードで起動します。")
+            // デバッグモード: モックアラームをセットして動作確認できるようにする
+            alarm = Self.makeMockAlarm()
+            wakeLogs = Self.mockWakeLogs
             return
         }
         alarmListener?.remove()
@@ -94,7 +124,11 @@ final class FirestoreService: ObservableObject {
     // MARK: - Alarm CRUD
 
     func saveAlarm(_ alarm: AlarmDocument, userId: String) async throws {
-        guard isFirebaseReady else { return }
+        guard isFirebaseReady else {
+            // デバッグモード: メモリ上のアラームを更新する
+            self.alarm = alarm
+            return
+        }
         try db.collection("alarms").document(userId).setData(from: alarm)
     }
 
@@ -122,7 +156,14 @@ final class FirestoreService: ObservableObject {
 
     /// iPhone が緊急停止 or 10分タイムアウト時に呼ぶ
     func markFailed(userId: String) async throws {
-        guard isFirebaseReady else { return }
+        guard isFirebaseReady else {
+            // デバッグモード: メモリ上のアラームを failed にして RingingView を閉じる
+            if var current = alarm {
+                current.status = .failed
+                alarm = current
+            }
+            return
+        }
         try await db.collection("alarms").document(userId).updateData([
             "status": "failed",
             "updatedAt": FieldValue.serverTimestamp()
@@ -132,7 +173,10 @@ final class FirestoreService: ObservableObject {
     // MARK: - Wake Logs
 
     func fetchWakeLogs(userId: String) async throws {
-        guard isFirebaseReady else { return }
+        guard isFirebaseReady else {
+            wakeLogs = Self.mockWakeLogs
+            return
+        }
         let snapshot = try await db.collection("wakeLogs")
             .whereField("userId", isEqualTo: userId)
             .order(by: "date", descending: true)
