@@ -82,11 +82,11 @@ struct AlarmDocument: Codable, Identifiable {
     // emergencyPassword は Keychain に保存するため Firestore には書かない
     // → backend/src/types.ts の Alarm 型・firestore.rules と一致
 
-    /// id を Codable から除外: Firestore.Encoder が @DocumentID を認識しない場合でも
-    /// id フィールドがドキュメントデータに混入しないようにする（isValidAlarm の hasOnly 対策）
-    enum CodingKeys: String, CodingKey {
-        case time, repeatDays, status, dismissedAt, updatedAt
-    }
+    // CodingKeys は定義しない。
+    // Firestore.Encoder は @DocumentID を自動でスキップするため、
+    // カスタム CodingKeys で id を除外する必要はない。
+    // むしろ除外すると @DocumentID がデコード時に値をセットできず
+    // alarm.id が常に nil になる（表示・削除バグの原因）。
 
     /// テスト可能な実装。`date` を外から注入できる。
     func isRinging(at date: Date) -> Bool {

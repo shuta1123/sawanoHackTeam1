@@ -83,6 +83,8 @@ final class FirestoreService: ObservableObject {
                         let oldRinging = self.ringingAlarm
                         self.alarms = docs.sorted { $0.time < $1.time }
 
+                        print("[WakeLog] snapshot fired. oldRinging=\(oldRinging?.id ?? "nil")(\(oldRinging?.status.rawValue ?? "-")) newAlarms=\(self.alarms.map { "\($0.id ?? "nil"):\($0.status.rawValue)" })")
+
                         // 鳴動中アラームが dismissed/failed になったらアフター処理
                         if let old = oldRinging,
                            let updated = self.alarms.first(where: { $0.id == old.id }),
@@ -91,6 +93,8 @@ final class FirestoreService: ObservableObject {
                             await self.handleAlarmStopped(
                                 alarm: updated, userId: userId, success: updated.status == .dismissed
                             )
+                        } else {
+                            print("[WakeLog] handleAlarmStopped スキップ: oldRinging=\(String(describing: oldRinging?.id))")
                         }
                         await self.resetOldAlarms(userId: userId)
                     }
@@ -101,6 +105,7 @@ final class FirestoreService: ObservableObject {
     }
 
     private func handleAlarmStopped(alarm: AlarmDocument, userId: String, success: Bool) async {
+        print("[WakeLog] handleAlarmStopped called. alarmId=\(alarm.id ?? "nil") status=\(alarm.status) success=\(success) userId='\(userId)'")
         try? await AlarmService.shared.cancel()
         if !alarm.repeatDays.isEmpty {
             do {
@@ -120,6 +125,9 @@ final class FirestoreService: ObservableObject {
             )
             try? await saveWakeLog(log)
         }
+        // PCが wakeLog を書いてから dismiss する順に変更済みだが、
+        // ネットワーク遅延を考慮して少し待ってから取得する
+        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5秒
         try? await fetchWakeLogs(userId: userId)
     }
 
@@ -241,19 +249,28 @@ final class FirestoreService: ObservableObject {
     // MARK: - Wake Logs
 
     func fetchWakeLogs(userId: String) async throws {
+        print("[WakeLog] fetchWakeLogs called. userId='\(userId)' isFirebaseReady=\(isFirebaseReady)")
         guard isFirebaseReady else {
             wakeLogs = Self.mockWakeLogs
             return
         }
-        // order(by:) + whereField の複合インデックス不要にするためクライアントソート
-        let snapshot = try await db.collection("wakeLogs")
-            .whereField("userId", isEqualTo: userId)
-            .limit(to: 30)
-            .getDocuments()
-
-        wakeLogs = try snapshot.documents.compactMap {
-            try $0.data(as: WakeLog.self)
-        }.sorted { $0.date > $1.date }
+        do {
+            let snapshot = try await db.collection("wakeLogs")
+                .whereField("userId", isEqualTo: userId)
+                .limit(to: 30)
+                .getDocuments()
+            print("[WakeLog] snapshot docs count=\(snapshot.documents.count)")
+            for doc in snapshot.documents {
+                print("[WakeLog] doc id=\(doc.documentID) data=\(doc.data())")
+            }
+            wakeLogs = try snapshot.documents.compactMap {
+                try $0.data(as: WakeLog.self)
+            }.sorted { $0.date > $1.date }
+            print("[WakeLog] decoded wakeLogs count=\(wakeLogs.count)")
+        } catch {
+            print("[WakeLog] ERROR: \(error)")
+            throw error
+        }
     }
 
     func saveWakeLog(_ log: WakeLog) async throws {

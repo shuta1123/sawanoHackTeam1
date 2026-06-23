@@ -19,9 +19,13 @@ service cloud.firestore {
     }
 
     // wakeLogs/{logId}: data.userId で所有者を判定
-    // ハッカソンデモ用: バリデーション外して認証のみ確認
+    // read と write を分離: list クエリで request.resource が null になるため
+    // read ルールに request.resource.data を使うと list クエリが失敗する
     match /wakeLogs/{logId} {
-      allow read, write: if request.auth != null
+      // 認証済みユーザーは全員読み取り可（list クエリ対応のためシンプルに）
+      allow read: if request.auth != null;
+      // 書き込み: 認証済み OR デバッグユーザー（PC Admin SDK はルール無視なので実質不要だが明示）
+      allow write: if request.auth != null
         || isDebugUser(request.resource.data.get('userId', ''));
     }
 

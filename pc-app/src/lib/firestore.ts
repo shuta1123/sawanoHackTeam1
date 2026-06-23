@@ -154,6 +154,7 @@ export async function recordWakeLog(userId: string, wakeTimeIso: string): Promis
   const wakeTime = `${get('hour')}:${get('minute')}`;
 
   const log: WakeLog = { userId, date, wakeTime, success: true };
+  console.log('[WakeLog] recordWakeLog:', { userId, date, wakeTime, isFirebaseReady });
 
   if (!isFirebaseReady) {
     const idx = debugWakeLogs.findIndex((l) => l.userId === userId && l.date === date);
@@ -165,14 +166,11 @@ export async function recordWakeLog(userId: string, wakeTimeIso: string): Promis
     return log;
   }
 
+  // set({merge: false}) で上書き: 同日に複数回テストしても最新時刻で更新される
+  // 1日1件保証は docId = `${userId}_${date}` で担保
   const ref = db!.collection(WAKE_LOGS_COLLECTION).doc(`${userId}_${date}`);
-  try {
-    await ref.create(log);
-  } catch {
-    const snap = await ref.get();
-    if (snap.exists) return snap.data() as WakeLog;
-    throw new Error(`wakeLogs への書き込みに失敗しました: userId=${userId}, date=${date}`);
-  }
+  await ref.set(log);
+  console.log('[WakeLog] written to Firestore docId:', ref.id, 'wakeTime:', wakeTime);
   return log;
 }
 

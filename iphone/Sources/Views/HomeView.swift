@@ -23,7 +23,6 @@ struct HomeView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     streakCard
-                    debugClockCard
                     alarmsSection
                 }
                 .padding()

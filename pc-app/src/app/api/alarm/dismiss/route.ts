@@ -54,8 +54,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'alarm is not ringing', derivedStatus }, { status: 409 });
   }
 
-  const { dismissedAt, alarmId: dismissedAlarmId } = await dismissAlarm(userId, alarmId ?? alarm.id);
+  // wakeLog を先に書いてから dismiss する。
+  // iPhone の Firestore リスナーは dismissed 書き込みの瞬間に発火して
+  // fetchWakeLogs を呼ぶため、dismiss より先に wakeLog を Firestore に入れておく必要がある。
+  const dismissedAt = new Date().toISOString();
   const wakeLog = await recordWakeLog(userId, dismissedAt);
+  const { alarmId: dismissedAlarmId } = await dismissAlarm(userId, alarmId ?? alarm.id);
 
   return NextResponse.json({ ok: true, dismissedAt, alarmId: dismissedAlarmId, wakeLog });
 }
