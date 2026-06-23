@@ -184,14 +184,16 @@ export async function listWakeLogs(userId: string, limit = 14): Promise<WakeLog[
     return debugWakeLogs.filter((l) => l.userId === userId).slice(0, limit);
   }
 
+  // orderBy('date') + where('userId') の複合インデックス不要にするためクライアントソート
   const snap = await db!
     .collection(WAKE_LOGS_COLLECTION)
     .where('userId', '==', userId)
-    .orderBy('date', 'desc')
     .limit(limit)
     .get();
 
-  return snap.docs.map((d) => d.data() as WakeLog);
+  return snap.docs
+    .map((d) => d.data() as WakeLog)
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
 /**

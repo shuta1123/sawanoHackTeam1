@@ -245,15 +245,15 @@ final class FirestoreService: ObservableObject {
             wakeLogs = Self.mockWakeLogs
             return
         }
+        // order(by:) + whereField の複合インデックス不要にするためクライアントソート
         let snapshot = try await db.collection("wakeLogs")
             .whereField("userId", isEqualTo: userId)
-            .order(by: "date", descending: true)
             .limit(to: 30)
             .getDocuments()
 
         wakeLogs = try snapshot.documents.compactMap {
             try $0.data(as: WakeLog.self)
-        }
+        }.sorted { $0.date > $1.date }
     }
 
     func saveWakeLog(_ log: WakeLog) async throws {
