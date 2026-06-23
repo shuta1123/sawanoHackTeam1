@@ -2,7 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>com.apple.developer.alarmkit</key>
-	<true/>
+	<!-- com.apple.developer.alarmkit は有料 Apple Developer アカウントが必要なため省略 -->
 </dict>
 </plist>

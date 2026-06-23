@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
   const derivedStatus = deriveStatus(alarm.status, alarm.time, alarm.repeatDays);
 
-  const body: AlarmWithDerivedStatus = { ...alarm, derivedStatus };
+  const body: AlarmWithDerivedStatus = { ...alarm, derivedStatus, alarmId: alarm.id };
   return NextResponse.json(body);
 }
 

@@ -1,6 +1,7 @@
 import Foundation
 import CommonCrypto
 import Security
+import FirebaseFirestore
 
 // MARK: - Helpers
 
@@ -71,7 +72,8 @@ enum AlarmStatus: String, Codable {
 
 // MARK: - Firestore Documents
 
-struct AlarmDocument: Codable {
+struct AlarmDocument: Codable, Identifiable {
+    @DocumentID var id: String?
     var time: String              // "HH:mm"
     var repeatDays: [String]      // ["mon", "tue", ...]
     var status: AlarmStatus

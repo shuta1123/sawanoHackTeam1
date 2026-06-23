@@ -6,36 +6,53 @@ struct HomeView: View {
 
     @State private var showSetup = false
     @State private var showHistory = false
+    @State private var editingAlarm: AlarmDocument? = nil
+    @State private var now = Date()
 
-    private var alarm: AlarmDocument? { firestoreService.alarm }
+    private var alarms: [AlarmDocument] { firestoreService.alarms }
     private var userId: String { authService.currentUserId ?? "" }
+
+    private var nowString: String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f.string(from: now)
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 20) {
                     streakCard
-                    alarmCard
-                    actionButtons
+                    debugClockCard
+                    alarmsSection
                 }
                 .padding()
             }
             .navigationTitle("AlarmStop")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button("ログアウト") { authService.signOut() }
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        editingAlarm = nil
+                        showSetup = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .fontWeight(.semibold)
+                    }
+                }
             }
             .sheet(isPresented: $showSetup) {
-                AlarmSetupView()
+                AlarmSetupView(editingAlarm: editingAlarm)
             }
             .sheet(isPresented: $showHistory) {
                 HistoryView()
             }
             .fullScreenCover(isPresented: Binding(
-                get: { alarm?.shouldBeRinging == true },
+                get: { firestoreService.ringingAlarm != nil },
                 set: { _ in }
             )) {
                 RingingView()
@@ -47,6 +64,9 @@ struct HomeView: View {
             }
             .task {
                 try? await firestoreService.fetchWakeLogs(userId: userId)
+            }
+            .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { t in
+                now = t
             }
         }
     }
@@ -77,44 +97,167 @@ struct HomeView: View {
         .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
     }
 
-    private var alarmCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("今日のアラーム")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    // MARK: - Debug Clock
 
-            if let alarm {
+    private var debugClockCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "ant.fill")
+                    .foregroundStyle(.purple)
+                Text("デバッグ")
+                    .font(.caption.bold())
+                    .foregroundStyle(.purple)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("現在時刻")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(nowString)
+                    .font(.system(size: 28, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.purple)
+            }
+
+            Divider()
+
+            ForEach(alarms) { alarm in
+                let ringing = alarm.isRinging(at: now)
                 HStack {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(alarm.time)
-                            .font(.system(size: 48, weight: .bold, design: .rounded))
-
-                        HStack(spacing: 6) {
-                            ForEach(RepeatDay.all) { day in
-                                Text(day.label)
-                                    .font(.caption2.bold())
-                                    .foregroundStyle(alarm.repeatDays.contains(day.id) ? .white : .secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 3)
-                                    .background(
-                                        alarm.repeatDays.contains(day.id)
-                                            ? Color.orange
-                                            : Color.secondary.opacity(0.2),
-                                        in: RoundedRectangle(cornerRadius: 4)
-                                    )
-                            }
-                        }
-                    }
+                    Text("⏰ \(alarm.time)")
+                        .font(.system(.caption, design: .monospaced))
                     Spacer()
-                    statusBadge(alarm.status)
+                    if ringing {
+                        Text("🔔 鳴動中")
+                            .font(.caption.bold())
+                            .foregroundStyle(.orange)
+                    } else if alarm.status == .scheduled {
+                        Text("待機中")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(alarm.status.rawValue)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-            } else {
-                Text("アラームが設定されていません")
+            }
+
+            if alarms.isEmpty {
+                Text("アラームなし")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(20)
+        .padding(14)
+        .background(.purple.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(.purple.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    private var alarmsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("アラーム")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    showHistory = true
+                } label: {
+                    Label("起床履歴", systemImage: "calendar")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if alarms.isEmpty {
+                emptyAlarmsView
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(alarms) { alarm in
+                        alarmRow(alarm)
+                    }
+                }
+            }
+        }
+    }
+
+    private var emptyAlarmsView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "alarm")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+            Text("アラームがありません")
+                .foregroundStyle(.secondary)
+            Text("右上の + で追加してください")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(40)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func alarmRow(_ alarm: AlarmDocument) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(alarm.time)
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+
+                if alarm.repeatDays.isEmpty {
+                    Text("繰り返しなし")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 4) {
+                        ForEach(RepeatDay.all) { day in
+                            Text(day.label)
+                                .font(.caption2.bold())
+                                .foregroundStyle(alarm.repeatDays.contains(day.id) ? .white : .secondary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(
+                                    alarm.repeatDays.contains(day.id)
+                                        ? Color.orange
+                                        : Color.secondary.opacity(0.15),
+                                    in: RoundedRectangle(cornerRadius: 4)
+                                )
+                        }
+                    }
+                }
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 8) {
+                statusBadge(alarm.status)
+                if alarm.shouldBeRinging {
+                    Label("鳴動中", systemImage: "bell.fill")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.orange)
+                }
+                Button {
+                    guard let alarmId = alarm.id else { return }
+                    Task {
+                        try? await firestoreService.deleteAlarm(alarmId: alarmId, userId: userId)
+                    }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.caption)
+                        .foregroundStyle(.red.opacity(0.7))
+                        .padding(6)
+                }
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .onTapGesture {
+            editingAlarm = alarm
+            showSetup = true
+        }
     }
 
     private func statusBadge(_ status: AlarmStatus) -> some View {
@@ -129,30 +272,5 @@ struct HomeView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(color, in: Capsule())
-    }
-
-    private var actionButtons: some View {
-        VStack(spacing: 12) {
-            Button {
-                showSetup = true
-            } label: {
-                Label("アラームを設定する", systemImage: "alarm.fill")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(.orange, in: RoundedRectangle(cornerRadius: 14))
-                    .foregroundStyle(.white)
-                    .fontWeight(.semibold)
-            }
-
-            Button {
-                showHistory = true
-            } label: {
-                Label("起床履歴を見る", systemImage: "calendar")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                    .foregroundStyle(.primary)
-            }
-        }
     }
 }

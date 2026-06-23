@@ -28,6 +28,12 @@ struct RingingView: View {
                 ringingContent
             }
         }
+        .onAppear {
+            AlarmAudioPlayer.shared.start()
+        }
+        .onDisappear {
+            AlarmAudioPlayer.shared.stop()
+        }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             guard !isDismissed && !isFailed && !isHandlingFailure else { return }
             if secondsRemaining > 0 {
@@ -38,9 +44,14 @@ struct RingingView: View {
             }
         }
         .onChange(of: firestoreService.alarm?.status) { _, status in
-            // cancel / reschedule / wakeLog は FirestoreService のリスナーが担当
-            if status == .dismissed { isDismissed = true }
-            if status == .failed    { isFailed = true }
+            if status == .dismissed {
+                AlarmAudioPlayer.shared.stop()
+                isDismissed = true
+            }
+            if status == .failed {
+                AlarmAudioPlayer.shared.stop()
+                isFailed = true
+            }
         }
         .sheet(isPresented: $showEmergencyStop) {
             emergencyStopSheet
