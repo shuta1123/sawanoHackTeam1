@@ -150,25 +150,23 @@ final class FirestoreService: ObservableObject {
             } else {
                 var newAlarm = alarm
                 if newAlarm.id == nil {
-                    // デバッグ時は UUID を文字列として id に代入
-                    // ※ @DocumentID は Firestore が設定するが、ここではダミーを使う
-                    let _ = UUID().uuidString // 使わないが intent を示す
+                    newAlarm.id = UUID().uuidString
                 }
                 alarms.append(newAlarm)
             }
             return
         }
 
-        let collection = db
+        let items = db
             .collection("alarms").document(userId)
             .collection("items")
 
         if let alarmId = alarm.id {
-            // 既存アラームの更新
-            try collection.document(alarmId).setData(from: alarm, merge: false)
+            // 既存アラームの更新: async setData でサーバー確認まで待つ
+            try await items.document(alarmId).setData(from: alarm, merge: false)
         } else {
-            // 新規追加（Firestore が ID を自動生成）
-            try collection.addDocument(from: alarm)
+            // 新規追加: document() で自動IDを取得してから async setData
+            try await items.document().setData(from: alarm)
         }
     }
 
@@ -258,7 +256,7 @@ final class FirestoreService: ObservableObject {
 
     func saveWakeLog(_ log: WakeLog) async throws {
         guard isFirebaseReady else { return }
-        try db.collection("wakeLogs").addDocument(from: log)
+        try await db.collection("wakeLogs").document().setData(from: log)
     }
 
     // MARK: - Streak
