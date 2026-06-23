@@ -7,14 +7,17 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
-    // デバッグ用: user001 は認証不要でアクセス可能
+    // デバッグ用: user001 は認証不要でアクセス可能（ハッカソンデモ用）
     function isDebugUser(userId) {
       return userId == "user001";
     }
 
     // alarms/{userId}/items/{alarmId}: 複数アラームのサブコレクション
     match /alarms/{userId}/items/{alarmId} {
-      allow read, write: if isDebugUser(userId) || isOwner(userId);
+      allow read: if isDebugUser(userId) || isOwner(userId);
+      allow create, update: if isDebugUser(userId)
+        || (isOwner(userId) && isValidAlarm(request.resource.data));
+      allow delete: if isDebugUser(userId) || isOwner(userId);
     }
 
     // wakeLogs/{logId}: data.userId で所有者を判定
@@ -23,8 +26,32 @@ service cloud.firestore {
         || (request.auth != null && request.auth.uid == resource.data.userId);
       allow create: if isDebugUser(request.resource.data.userId)
         || (request.auth != null
-          && request.auth.uid == request.resource.data.userId);
+          && request.auth.uid == request.resource.data.userId
+          && isValidWakeLog(request.resource.data));
       allow update, delete: if false;
+    }
+
+    // alarm バリデーション
+    function isValidAlarm(data) {
+      return data.keys().hasOnly(['time', 'repeatDays', 'status', 'dismissedAt', 'updatedAt'])
+        && data.time is string
+        && data.time.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && data.repeatDays is list
+        && data.repeatDays.hasOnly(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
+        && data.status in ['scheduled', 'ringing', 'dismissed', 'failed']
+        && (data.dismissedAt == null || data.dismissedAt is string || data.dismissedAt is timestamp)
+        && (data.updatedAt is string || data.updatedAt is timestamp);
+    }
+
+    // wakeLog バリデーション
+    function isValidWakeLog(data) {
+      return data.keys().hasOnly(['userId', 'date', 'wakeTime', 'success'])
+        && data.userId is string
+        && data.date is string
+        && data.date.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$')
+        && data.wakeTime is string
+        && data.wakeTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && data.success is bool;
     }
   }
 }

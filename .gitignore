@@ -48,3 +48,4 @@ serviceAccountKey.json
 
 # Claude Code 作業メモ（コミットしない）
 CLAUDE.md
+.fuse_hidden*
