@@ -39,8 +39,8 @@ Macでカメラ権限を求められた場合は許可してください。QRコ
 
 | Method | Path | 用途 | リクエスト | レスポンス例 |
 |---|---|---|---|---|
-| GET | `/api/alarm/status` | アラームの現在状態を取得（`ringing`は導出値） | query: `userId` | `{ time, repeatDays, status, dismissedAt, updatedAt, derivedStatus }` |
-| POST | `/api/alarm/dismiss` | QRコード読取成功時にアラームを解除する | body: `{ "userId": "user001" }` | `{ ok, dismissedAt, wakeLog }` |
+| GET | `/api/alarm/status` | アラームの現在状態を取得（`ringing`は導出値） | query: `userId` | `{ time, repeatDays, status, dismissedAt, updatedAt, derivedStatus, alarmId }` |
+| POST | `/api/alarm/dismiss` | QRコード読取成功時にアラームを解除する | body: `{ "userId": "user001", "alarmId": "xxx"(任意) }` | `{ ok, dismissedAt, alarmId, wakeLog }` |
 | GET | `/api/wakelogs` | 起床履歴を新しい順に取得する | query: `userId`, `limit`(任意, 既定14) | `{ logs: WakeLog[] }` |
 | GET | `/api/schedule` | 今日の予定を取得する（MVPはハードコード） | query: `userId` | `{ schedule: ScheduleItem[] }` |
 

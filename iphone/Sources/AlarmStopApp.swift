@@ -21,31 +21,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // plist が見つからない、読めない、必須キーが欠落/空/REPLACE_ME の場合は
-        // UI 確認用に Firebase を無効化して続行する（本番では実際の plist を配置すること）。
-        let requiredFirebaseKeys = [
-            "API_KEY", "GOOGLE_APP_ID", "PROJECT_ID", "GCM_SENDER_ID", "STORAGE_BUCKET"
-        ]
-        let firebaseReady: Bool = {
-            guard
-                let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
-                let dict = NSDictionary(contentsOfFile: path) as? [String: Any],
-                requiredFirebaseKeys.allSatisfy({
-                    guard let value = dict[$0] as? String, !value.isEmpty else { return false }
-                    return value != "REPLACE_ME"
-                })
-            else { return false }
-            return true
-        }()
-
-        if firebaseReady {
+        // Firebase を直接コードで初期化（plist 不要）
+        // plist がバンドルに含まれていればそちらを優先し、なければコード設定を使う。
+        if Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil {
             FirebaseApp.configure()
+            print("[AlarmStop] ✅ Firebase initialized from GoogleService-Info.plist")
         } else {
-            print("""
-            [AlarmStop] ⚠️ GoogleService-Info.plist が未設定のため Firebase を無効化して起動します。
-            Firebase Console (https://console.firebase.google.com/) から
-            iOS アプリ用の plist を取得し、iphone/Resources/ に配置してください。
-            """)
+            let options = FirebaseOptions(
+                googleAppID: "1:1043304150852:ios:a15d831361604d05c1c911",
+                gcmSenderID: "1043304150852"
+            )
+            options.apiKey      = "AIzaSyAPciyxcaJvy5bOl9BJafLg5EF0Z0pJE6o"
+            options.projectID   = "sawano-hack-team1"
+            options.storageBucket = "sawano-hack-team1.firebasestorage.app"
+            options.bundleID    = Bundle.main.bundleIdentifier ?? "com.sawanohackteam1.AlarmStop"
+            FirebaseApp.configure(options: options)
+            print("[AlarmStop] ✅ Firebase initialized from code (plist not found in bundle)")
         }
         return true
     }

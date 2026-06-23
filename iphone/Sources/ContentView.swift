@@ -12,10 +12,9 @@ struct ContentView: View {
                 HomeView()
                     .onAppear {
                         guard let uid = authService.currentUserId else { return }
+                        // fullScreenCover 表示時も onDisappear が呼ばれるため
+                        // stopListening はここでは行わず、ログアウト時のみ行う
                         firestoreService.startListening(userId: uid)
-                    }
-                    .onDisappear {
-                        firestoreService.stopListening()
                     }
             }
         }

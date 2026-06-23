@@ -24,29 +24,47 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'alarm not found' }, { status: 404 });
   }
 
-  const derivedStatus = deriveStatus(alarm.status, alarm.time);
+  const derivedStatus = deriveStatus(alarm.status, alarm.time, alarm.repeatDays);
 
-  const body: AlarmWithDerivedStatus = { ...alarm, derivedStatus };
+  const body: AlarmWithDerivedStatus = { ...alarm, derivedStatus, alarmId: alarm.id };
   return NextResponse.json(body);
 }
 
+/** 鳴動とみなす時間窓（分）。この時間を過ぎた scheduled は ringing に遷移しない */
+const RING_WINDOW_MINUTES = 10;
+
+/** 曜日コード配列（Date.getDay() の返り値 0=日曜 に対応）*/
+const WEEKDAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+
 /**
- * DB上のstatusが "scheduled" のままで、かつ現在時刻がアラーム時刻を過ぎていれば
- * 「鳴動中(ringing)」とみなす（README 設計決定 #4 のロジックそのまま）。
+ * DB上の status が "scheduled" のとき、現在時刻からアラームが鳴動中かどうかを導出する。
  *
- * NOTE: 現状は repeatDays（今日が対象曜日かどうか）までは見ていない。
- * README本文の定義は時刻のみの比較なのでそれに合わせているが、
- * 「対象曜日でない日にscheduledのまま残っていたらringingと誤判定される」点は
- * チームで要確認（iPhone側が毎日 scheduled に再セットする前提に依存している）。
+ * backend/src/alarms.ts の shouldRing() と同等のロジック:
+ *  1. repeatDays が設定されている場合は今日の曜日が含まれていなければ false
+ *  2. 現在時刻がアラーム時刻から RING_WINDOW_MINUTES 分以内なら ringing
  */
-function deriveStatus(dbStatus: Alarm['status'], time: string): AlarmWithDerivedStatus['derivedStatus'] {
+function deriveStatus(
+  dbStatus: Alarm['status'],
+  time: string,
+  repeatDays: string[]
+): AlarmWithDerivedStatus['derivedStatus'] {
   if (dbStatus !== 'scheduled') {
     return dbStatus; // dismissed / failed はそのまま
   }
 
-  const [hour, minute] = time.split(':').map(Number);
   const now = new Date();
-  const alarmDateTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0);
 
-  return now.getTime() >= alarmDateTime.getTime() ? 'ringing' : 'scheduled';
+  // repeatDays が設定されている場合は今日の曜日をチェック
+  if (repeatDays.length > 0) {
+    const todayCode = WEEKDAY_CODES[now.getDay()];
+    if (!repeatDays.includes(todayCode)) return 'scheduled';
+  }
+
+  const [hour, minute] = time.split(':').map(Number);
+  const alarmDateTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0);
+  const diffMs = now.getTime() - alarmDateTime.getTime();
+  const diffMins = diffMs / 60_000;
+
+  // アラーム時刻から RING_WINDOW_MINUTES 分以内なら ringing
+  return diffMins >= 0 && diffMins < RING_WINDOW_MINUTES ? 'ringing' : 'scheduled';
 }

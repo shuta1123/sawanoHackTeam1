@@ -2,98 +2,159 @@
 // API Routes（src/app/api/**）はこのモジュールの関数だけを呼び、
 // Firestoreのコレクション名やクエリの書き方を直接知らなくてよいようにする。
 //
+// 複数アラーム対応: alarms/{userId}/items/{alarmId} サブコレクション構造
 // Firebase 未設定時（isFirebaseReady === false）はモックデータを返すデバッグモードで動作する。
 
 import { db, isFirebaseReady } from './firebaseAdmin';
-import { FieldPath } from 'firebase-admin/firestore';
 import { Alarm, WakeLog } from './types';
 
 const ALARMS_COLLECTION = 'alarms';
 const WAKE_LOGS_COLLECTION = 'wakeLogs';
 
 // ── デバッグ用インメモリストア ──────────────────────────────────────
-// Firebase 未設定時のみ使用。プロセス再起動でリセットされる。
 const _debugAlarmDefault: Alarm = {
+  id: 'debug-alarm-1',
   time: '07:00',
   repeatDays: ['mon', 'tue', 'wed', 'thu', 'fri'],
   status: 'scheduled',
   dismissedAt: null,
   updatedAt: new Date().toISOString(),
 };
-const debugAlarms: Map<string, Alarm> = new Map();
+// userId -> alarms[]
+const debugAlarms: Map<string, Alarm[]> = new Map();
 
 const debugWakeLogs: WakeLog[] = [
-  { userId: 'debug-user', date: '2026-06-20', wakeTime: '06:58', success: true },
-  { userId: 'debug-user', date: '2026-06-19', wakeTime: '07:03', success: true },
-  { userId: 'debug-user', date: '2026-06-18', wakeTime: '07:11', success: false },
+  { userId: 'user001', date: '2026-06-20', wakeTime: '06:58', success: true },
+  { userId: 'user001', date: '2026-06-19', wakeTime: '07:03', success: true },
+  { userId: 'user001', date: '2026-06-18', wakeTime: '07:11', success: false },
 ];
 
+/** 曜日コード配列（Date.getDay() の返り値 0=日曜 に対応）*/
+const WEEKDAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+
+/** 鳴動とみなす時間窓（分） */
+const RING_WINDOW_MINUTES = 10;
+
+/** 現在時刻にアラームが鳴動中かどうかを判定する */
+function isRinging(alarm: Alarm): boolean {
+  if (alarm.status !== 'scheduled') return false;
+  const now = new Date();
+  if (alarm.repeatDays.length > 0) {
+    const todayCode = WEEKDAY_CODES[now.getDay()];
+    if (!alarm.repeatDays.includes(todayCode)) return false;
+  }
+  const [hour, minute] = alarm.time.split(':').map(Number);
+  const alarmTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0);
+  const diffMins = (now.getTime() - alarmTime.getTime()) / 60_000;
+  return diffMins >= 0 && diffMins < RING_WINDOW_MINUTES;
+}
+
 /**
- * alarms/{userId} を1件取得する。
- * MVPは1ユーザー1アラームのため、ドキュメントID = userId。
+ * alarms/{userId}/items サブコレクションから全アラームを取得し、
+ * 現在鳴動中のものを返す。なければ先頭のアラームを返す（後方互換）。
  */
 export async function getAlarm(userId: string): Promise<Alarm | null> {
+  const alarms = await getAlarms(userId);
+  if (alarms.length === 0) return null;
+  return alarms.find(isRinging) ?? alarms[0];
+}
+
+/**
+ * alarms/{userId}/items サブコレクションから全アラームを取得する。
+ */
+export async function getAlarms(userId: string): Promise<Alarm[]> {
   if (!isFirebaseReady) {
-    return debugAlarms.get(userId) ?? { ..._debugAlarmDefault };
+    return debugAlarms.get(userId) ?? [{ ..._debugAlarmDefault }];
   }
-  const snap = await db!.collection(ALARMS_COLLECTION).doc(userId).get();
-  if (!snap.exists) return null;
-  return snap.data() as Alarm;
+
+  const snap = await db!
+    .collection(ALARMS_COLLECTION)
+    .doc(userId)
+    .collection('items')
+    .get();
+
+  return snap.docs.map((doc) => ({
+    id: doc.id,
+    ...(doc.data() as Omit<Alarm, 'id'>),
+  }));
 }
 
 /**
  * QRコード読取成功時にPCが呼び出す解除処理。
- * README 設計決定 #4: 「dismissed」はPCがQR読取成功時に書く責務。
- *
- * merge: true にしているのは、time / repeatDays など他のフィールドを消さずに
- * status / dismissedAt / updatedAt だけを上書きするため。
+ * alarmId が指定された場合はそのアラームを、未指定なら鳴動中のアラームを解除する。
  */
-export async function dismissAlarm(userId: string): Promise<{ dismissedAt: string }> {
+export async function dismissAlarm(
+  userId: string,
+  alarmId?: string
+): Promise<{ dismissedAt: string; alarmId: string | undefined }> {
   const dismissedAtIso = new Date().toISOString();
 
   if (!isFirebaseReady) {
-    const current = debugAlarms.get(userId) ?? { ..._debugAlarmDefault };
-    debugAlarms.set(userId, {
-      ...current,
-      status: 'dismissed',
-      dismissedAt: dismissedAtIso,
-      updatedAt: dismissedAtIso,
-    });
-    return { dismissedAt: dismissedAtIso };
+    const alarms = debugAlarms.get(userId) ?? [{ ..._debugAlarmDefault }];
+    const target = alarmId
+      ? alarms.find((a) => a.id === alarmId)
+      : (alarms.find(isRinging) ?? alarms[0]);
+    if (target) {
+      target.status = 'dismissed';
+      target.dismissedAt = dismissedAtIso;
+      target.updatedAt = dismissedAtIso;
+    }
+    return { dismissedAt: dismissedAtIso, alarmId: target?.id };
   }
 
-  await db!.collection(ALARMS_COLLECTION).doc(userId).set(
-    {
-      status: 'dismissed',
-      dismissedAt: dismissedAtIso,
-      updatedAt: dismissedAtIso,
-    },
-    { merge: true }
-  );
+  // alarmId が未指定の場合は鳴動中アラームを探す
+  let targetId = alarmId;
+  if (!targetId) {
+    const alarms = await getAlarms(userId);
+    targetId = alarms.find(isRinging)?.id ?? alarms[0]?.id;
+  }
 
-  return { dismissedAt: dismissedAtIso };
+  if (!targetId) {
+    return { dismissedAt: dismissedAtIso, alarmId: undefined };
+  }
+
+  // iOS SDK は Firestore Timestamp しかデコードできないため
+  // Admin SDK が Date → Timestamp 変換するよう Date オブジェクトで書く
+  const now = new Date();
+  await db!
+    .collection(ALARMS_COLLECTION)
+    .doc(userId)
+    .collection('items')
+    .doc(targetId)
+    .set(
+      {
+        status: 'dismissed',
+        dismissedAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+  return { dismissedAt: dismissedAtIso, alarmId: targetId };
 }
 
 /**
  * 起床ログ(wakeLogs)を1件記録する。
- *
- * ドキュメントIDを `${userId}_${date}` にしているのは2つ理由がある:
- *  1) 同じ日に複数回QRを読み取っても上書きになり、重複レコードが増えない
- *  2) ドキュメントIDの前方一致で履歴一覧を取得できるため、
- *     Firestoreの複合インデックス作成が不要になる（listWakeLogs参照）
- *
- * success は常に true で記録する。
+ * 同一 userId+date が既にある場合は既存を返す（1日1レコード保証）。
  */
 export async function recordWakeLog(userId: string, wakeTimeIso: string): Promise<WakeLog> {
-  const date = wakeTimeIso.slice(0, 10); // "YYYY-MM-DD"
-  const wakeTime = wakeTimeIso.slice(11, 16); // "HH:mm"
+  // Intl.DateTimeFormat で Asia/Tokyo に固定して date / wakeTime を算出する
+  const d = new Date(wakeTimeIso);
+  const fmt = (part: Intl.DateTimeFormatPartTypes) =>
+    new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', [part]: '2-digit' })
+      .format(d)
+      .padStart(2, '0');
+  const parts = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  }).formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
+  const date = `${get('year')}-${get('month')}-${get('day')}`;
+  const wakeTime = `${get('hour')}:${get('minute')}`;
 
-  const log: WakeLog = {
-    userId,
-    date,
-    wakeTime,
-    success: true,
-  };
+  const log: WakeLog = { userId, date, wakeTime, success: true };
+  console.log('[WakeLog] recordWakeLog:', { userId, date, wakeTime, isFirebaseReady });
 
   if (!isFirebaseReady) {
     const idx = debugWakeLogs.findIndex((l) => l.userId === userId && l.date === date);
@@ -105,36 +166,69 @@ export async function recordWakeLog(userId: string, wakeTimeIso: string): Promis
     return log;
   }
 
-  await db!.collection(WAKE_LOGS_COLLECTION).doc(`${userId}_${date}`).set(log);
+  // set({merge: false}) で上書き: 同日に複数回テストしても最新時刻で更新される
+  // 1日1件保証は docId = `${userId}_${date}` で担保
+  const ref = db!.collection(WAKE_LOGS_COLLECTION).doc(`${userId}_${date}`);
+  await ref.set(log);
+  console.log('[WakeLog] written to Firestore docId:', ref.id, 'wakeTime:', wakeTime);
   return log;
 }
 
 /**
- * 起床履歴を新しい日付順に取得する（ダッシュボードの履歴表示用）。
- *
- * userId による絞り込みを「ドキュメントIDの前方一致」で行うことで、
- * where('userId','==',...).orderBy('date',...) のような複合インデックスを
- * 作らずに済むようにしている（ハッカソンの開発スピード優先のための工夫）。
- * 本格運用する場合は複合インデックスを作成し、通常のwhere+orderByに置き換えても良い。
+ * 起床履歴を新しい日付順に取得する。
  */
 export async function listWakeLogs(userId: string, limit = 14): Promise<WakeLog[]> {
   if (!isFirebaseReady) {
-    return debugWakeLogs.slice(0, limit);
+    return debugWakeLogs.filter((l) => l.userId === userId).slice(0, limit);
   }
 
-  const start = `${userId}_`;
-  const end = `${userId}_`; //  はUnicode上ほぼ最大の文字。前方一致検索の定番テクニック
-
+  // orderBy('date') + where('userId') の複合インデックス不要にするためクライアントソート
   const snap = await db!
     .collection(WAKE_LOGS_COLLECTION)
-    .orderBy(FieldPath.documentId())
-    .startAt(start)
-    .endAt(end)
+    .where('userId', '==', userId)
+    .limit(limit)
     .get();
 
-  const logs = snap.docs.map((d) => d.data() as WakeLog);
+  return snap.docs
+    .map((d) => d.data() as WakeLog)
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
 
-  // ドキュメントID昇順 = 日付昇順（"YYYY-MM-DD"は文字列としても時系列順に並ぶ）なので、
-  // 新しい順にしたいダッシュボード表示用に反転させてから件数を絞る。
-  return logs.reverse().slice(0, limit);
+/**
+ * 連続起床成功日数（ストリーク）を計算する。
+ */
+export function calcStreak(logs: WakeLog[], today: string): number {
+  if (logs.length === 0) return 0;
+
+  const byDate = new Map<string, WakeLog>();
+  for (const log of logs) byDate.set(log.date, log);
+
+  let streak = 0;
+  const cursor = parseLocalDate(today);
+
+  if (!byDate.has(formatDate(cursor))) {
+    cursor.setDate(cursor.getDate() - 1);
+    if (!byDate.has(formatDate(cursor))) return 0;
+  }
+
+  while (true) {
+    const key = formatDate(cursor);
+    const log = byDate.get(key);
+    if (!log || !log.success) break;
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function parseLocalDate(date: string): Date {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }

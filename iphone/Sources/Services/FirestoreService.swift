@@ -1,55 +1,111 @@
 import Foundation
 import FirebaseFirestore
 import FirebaseCore
+import FirebaseAuth
 
 @MainActor
 final class FirestoreService: ObservableObject {
-    @Published var alarm: AlarmDocument?
+    /// 全アラームリスト（複数アラーム対応）
+    @Published var alarms: [AlarmDocument] = []
     @Published var wakeLogs: [WakeLog] = []
     @Published var alarmScheduleError = false
 
     // Firebase 未設定時はアクセスしないよう lazy にする
     private lazy var db: Firestore = Firestore.firestore()
-    private var alarmListener: ListenerRegistration?
+    private var alarmsListener: ListenerRegistration?
 
-    private var isFirebaseReady: Bool { FirebaseApp.app() != nil }
+    /// Firebase 初期化済みの場合に true
+    private var isFirebaseReady: Bool {
+        FirebaseApp.app() != nil
+    }
+
+    // MARK: - Backward-Compat Computed Properties
+
+    /// 現在鳴動中のアラーム（RingingView 用）
+    var ringingAlarm: AlarmDocument? {
+        alarms.first(where: { $0.shouldBeRinging })
+    }
+
+    /// 後方互換: 単一アラームを参照していた箇所向け（鳴動中 → なければ先頭）
+    var alarm: AlarmDocument? { ringingAlarm ?? alarms.first }
+
+    // MARK: - Debug Mock Data
+
+    private static func makeMockAlarms() -> [AlarmDocument] {
+        let now = Date()
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.hour, .minute], from: now.addingTimeInterval(2 * 60))
+        let h = String(format: "%02d", comps.hour ?? 7)
+        let m = String(format: "%02d", comps.minute ?? 0)
+        return [
+            AlarmDocument(
+                time: "\(h):\(m)",
+                repeatDays: [],
+                status: .scheduled,
+                dismissedAt: nil,
+                updatedAt: now
+            ),
+            AlarmDocument(
+                time: "07:00",
+                repeatDays: ["mon", "tue", "wed", "thu", "fri"],
+                status: .scheduled,
+                dismissedAt: nil,
+                updatedAt: now
+            ),
+        ]
+    }
+
+    private static let mockWakeLogs: [WakeLog] = [
+        WakeLog(userId: "user001", date: "2026-06-20", wakeTime: "06:58", success: true),
+        WakeLog(userId: "user001", date: "2026-06-19", wakeTime: "07:03", success: true),
+        WakeLog(userId: "user001", date: "2026-06-18", wakeTime: "07:11", success: false),
+    ]
 
     // MARK: - Alarm Listener
 
+    /// alarms/{userId}/items サブコレクションをリアルタイム監視
     func startListening(userId: String) {
         guard isFirebaseReady else {
-            print("[FirestoreService] Firebase 未設定のためリスニングをスキップします。")
+            print("[FirestoreService] Firebase 未設定のためデバッグモードで起動します。")
+            alarms = Self.makeMockAlarms()
+            wakeLogs = Self.mockWakeLogs
             return
         }
-        alarmListener?.remove()
-        alarmListener = db.collection("alarms")
-            .document(userId)
+        alarmsListener?.remove()
+        alarmsListener = db
+            .collection("alarms").document(userId)
+            .collection("items")
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self, error == nil, let snapshot else { return }
-                guard snapshot.exists else { return }
                 do {
-                    let doc = try snapshot.data(as: AlarmDocument.self)
+                    let docs = try snapshot.documents.map { try $0.data(as: AlarmDocument.self) }
                     Task { @MainActor in
-                        let oldStatus = self.alarm?.status
-                        self.alarm = doc
-                        // scheduled → dismissed/failed = アラーム解除フロー
-                        // View に依存せずここで処理することで、RingingView の
-                        // ライフサイクル（fullScreenCover の dismissal）と競合しない
-                        if oldStatus == .scheduled,
-                           doc.status == .dismissed || doc.status == .failed {
+                        let oldRinging = self.ringingAlarm
+                        self.alarms = docs.sorted { $0.time < $1.time }
+
+                        print("[WakeLog] snapshot fired. oldRinging=\(oldRinging?.id ?? "nil")(\(oldRinging?.status.rawValue ?? "-")) newAlarms=\(self.alarms.map { "\($0.id ?? "nil"):\($0.status.rawValue)" })")
+
+                        // 鳴動中アラームが dismissed/failed になったらアフター処理
+                        if let old = oldRinging,
+                           let updated = self.alarms.first(where: { $0.id == old.id }),
+                           old.status == .scheduled,
+                           updated.status == .dismissed || updated.status == .failed {
                             await self.handleAlarmStopped(
-                                alarm: doc, userId: userId, success: doc.status == .dismissed
+                                alarm: updated, userId: userId, success: updated.status == .dismissed
                             )
+                        } else {
+                            print("[WakeLog] handleAlarmStopped スキップ: oldRinging=\(String(describing: oldRinging?.id))")
                         }
-                        await self.resetIfNewDay(userId: userId)
+                        await self.resetOldAlarms(userId: userId)
                     }
                 } catch {
-                    print("[Firestore] alarm decode error: \(error)")
+                    print("[Firestore] alarms decode error: \(error)")
                 }
             }
     }
 
     private func handleAlarmStopped(alarm: AlarmDocument, userId: String, success: Bool) async {
+        print("[WakeLog] handleAlarmStopped called. alarmId=\(alarm.id ?? "nil") status=\(alarm.status) success=\(success) userId='\(userId)'")
         try? await AlarmService.shared.cancel()
         if !alarm.repeatDays.isEmpty {
             do {
@@ -60,8 +116,6 @@ final class FirestoreService: ObservableObject {
                 alarmScheduleError = true
             }
         }
-        // dismissed (success=true) の wakeLog は PC 側 (POST /api/alarm/dismiss) が書くため iPhone は書かない
-        // failed (success=false) は iPhone 側のみが検知できるためここで記録する
         if !success {
             let log = WakeLog(
                 userId: userId,
@@ -71,6 +125,9 @@ final class FirestoreService: ObservableObject {
             )
             try? await saveWakeLog(log)
         }
+        // PCが wakeLog を書いてから dismiss する順に変更済みだが、
+        // ネットワーク遅延を考慮して少し待ってから取得する
+        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5秒
         try? await fetchWakeLogs(userId: userId)
     }
 
@@ -87,66 +144,139 @@ final class FirestoreService: ObservableObject {
     }
 
     func stopListening() {
-        alarmListener?.remove()
-        alarmListener = nil
+        alarmsListener?.remove()
+        alarmsListener = nil
     }
 
     // MARK: - Alarm CRUD
 
+    /// アラームを保存（id があれば上書き、なければ新規追加）
     func saveAlarm(_ alarm: AlarmDocument, userId: String) async throws {
-        guard isFirebaseReady else { return }
-        try db.collection("alarms").document(userId).setData(from: alarm)
-    }
+        guard isFirebaseReady else {
+            if let idx = alarms.firstIndex(where: { $0.id == alarm.id }) {
+                alarms[idx] = alarm
+            } else {
+                var newAlarm = alarm
+                if newAlarm.id == nil {
+                    newAlarm.id = UUID().uuidString
+                }
+                alarms.append(newAlarm)
+            }
+            return
+        }
 
-    /// dismissed / failed が前日以前なら scheduled にリセット（繰り返しアラーム用）
-    func resetIfNewDay(userId: String) async {
-        guard let alarm else { return }
-        guard alarm.status == .dismissed || alarm.status == .failed else { return }
+        let items = db
+            .collection("alarms").document(userId)
+            .collection("items")
 
-        let today = Calendar.current.startOfDay(for: Date())
-        // dismissed は dismissedAt、failed は dismissedAt が nil なので updatedAt を使う
-        let referenceDate = alarm.dismissedAt ?? alarm.updatedAt
-        let referenceDay = Calendar.current.startOfDay(for: referenceDate)
-        guard referenceDay < today else { return }
+        // Firestore.Encoder で辞書に変換してから async setData([String:Any]) を使う
+        // （setData(from: Codable) の async 版はこの SDK バージョンに存在しないため）
+        let encoded = try Firestore.Encoder().encode(alarm)
 
-        do {
-            try await db.collection("alarms").document(userId).updateData([
-                "status": AlarmStatus.scheduled.rawValue,
-                "dismissedAt": NSNull(),
-                "updatedAt": FieldValue.serverTimestamp()
-            ])
-        } catch {
-            print("[Firestore] resetIfNewDay error: \(error)")
+        if let alarmId = alarm.id {
+            try await items.document(alarmId).setData(encoded)
+        } else {
+            try await items.document().setData(encoded)
         }
     }
 
-    /// iPhone が緊急停止 or 10分タイムアウト時に呼ぶ
+    /// アラームを削除
+    func deleteAlarm(alarmId: String, userId: String) async throws {
+        guard isFirebaseReady else {
+            alarms.removeAll { $0.id == alarmId }
+            return
+        }
+        try await db
+            .collection("alarms").document(userId)
+            .collection("items")
+            .document(alarmId)
+            .delete()
+    }
+
+    /// 前日以前に dismissed/failed になった【繰り返し】アラームを scheduled にリセット
+    /// 単発アラーム（repeatDays が空）はリセットしない
+    func resetOldAlarms(userId: String) async {
+        let today = Calendar.current.startOfDay(for: Date())
+        for alarm in alarms {
+            // 単発アラームはリセットしない
+            guard !alarm.repeatDays.isEmpty else { continue }
+            guard alarm.status == .dismissed || alarm.status == .failed,
+                  let alarmId = alarm.id else { continue }
+            let referenceDate = alarm.dismissedAt ?? alarm.updatedAt
+            let referenceDay = Calendar.current.startOfDay(for: referenceDate)
+            guard referenceDay < today else { continue }
+
+            do {
+                try await db
+                    .collection("alarms").document(userId)
+                    .collection("items")
+                    .document(alarmId)
+                    .updateData([
+                        "status": AlarmStatus.scheduled.rawValue,
+                        "dismissedAt": NSNull(),
+                        "updatedAt": FieldValue.serverTimestamp()
+                    ])
+            } catch {
+                print("[Firestore] resetOldAlarms error for \(alarmId): \(error)")
+            }
+        }
+    }
+
+    // 後方互換: ContentView/AlarmSetupView から呼ばれる旧 resetIfNewDay
+    func resetIfNewDay(userId: String) async {
+        await resetOldAlarms(userId: userId)
+    }
+
+    /// 鳴動中のアラームを failed にマーク
     func markFailed(userId: String) async throws {
-        guard isFirebaseReady else { return }
-        try await db.collection("alarms").document(userId).updateData([
-            "status": "failed",
-            "updatedAt": FieldValue.serverTimestamp()
-        ])
+        guard isFirebaseReady else {
+            if let idx = alarms.indices.first(where: { alarms[$0].shouldBeRinging }) {
+                alarms[idx].status = .failed
+            }
+            return
+        }
+        guard let ringing = ringingAlarm, let alarmId = ringing.id else { return }
+        try await db
+            .collection("alarms").document(userId)
+            .collection("items")
+            .document(alarmId)
+            .updateData([
+                "status": "failed",
+                "updatedAt": FieldValue.serverTimestamp()
+            ])
     }
 
     // MARK: - Wake Logs
 
     func fetchWakeLogs(userId: String) async throws {
-        guard isFirebaseReady else { return }
-        let snapshot = try await db.collection("wakeLogs")
-            .whereField("userId", isEqualTo: userId)
-            .order(by: "date", descending: true)
-            .limit(to: 30)
-            .getDocuments()
-
-        wakeLogs = try snapshot.documents.compactMap {
-            try $0.data(as: WakeLog.self)
+        print("[WakeLog] fetchWakeLogs called. userId='\(userId)' isFirebaseReady=\(isFirebaseReady)")
+        guard isFirebaseReady else {
+            wakeLogs = Self.mockWakeLogs
+            return
+        }
+        do {
+            let snapshot = try await db.collection("wakeLogs")
+                .whereField("userId", isEqualTo: userId)
+                .limit(to: 30)
+                .getDocuments()
+            print("[WakeLog] snapshot docs count=\(snapshot.documents.count)")
+            for doc in snapshot.documents {
+                print("[WakeLog] doc id=\(doc.documentID) data=\(doc.data())")
+            }
+            wakeLogs = try snapshot.documents.compactMap {
+                try $0.data(as: WakeLog.self)
+            }.sorted { $0.date > $1.date }
+            print("[WakeLog] decoded wakeLogs count=\(wakeLogs.count)")
+        } catch {
+            print("[WakeLog] ERROR: \(error)")
+            throw error
         }
     }
 
     func saveWakeLog(_ log: WakeLog) async throws {
         guard isFirebaseReady else { return }
-        try db.collection("wakeLogs").addDocument(from: log)
+        let encoded = try Firestore.Encoder().encode(log)
+        try await db.collection("wakeLogs").document().setData(encoded)
     }
 
     // MARK: - Streak

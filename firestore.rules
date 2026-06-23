@@ -1,36 +1,35 @@
 rules_version = '2';
 
-// Cloud Firestore セキュリティルール
-// 方針: 自分のデータ（userId == 認証UID）のみ読み書きできる。
-//       iPhone・PC は同一ユーザーとして認証されるため、両者ともこのルールで動く。
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // 共通: 認証済みかつ本人か
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
     }
 
-    // alarms/{userId}: ドキュメントID = userId（1ユーザー1アラーム）
-    match /alarms/{userId} {
-      allow read: if isOwner(userId);
-      allow create, update: if isOwner(userId) && isValidAlarm(request.resource.data);
-      allow delete: if isOwner(userId);
+    // デバッグ用: user001 は認証不要でアクセス可能（ハッカソンデモ用）
+    function isDebugUser(userId) {
+      return userId == "user001";
+    }
+
+    // alarms/{userId}/items/{alarmId}: 複数アラームのサブコレクション
+    // ハッカソンデモ用: バリデーション外して認証のみ確認
+    match /alarms/{userId}/items/{alarmId} {
+      allow read, write: if isDebugUser(userId) || isOwner(userId);
     }
 
     // wakeLogs/{logId}: data.userId で所有者を判定
+    // read と write を分離: list クエリで request.resource が null になるため
+    // read ルールに request.resource.data を使うと list クエリが失敗する
     match /wakeLogs/{logId} {
-      allow read: if request.auth != null
-        && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null
-        && request.auth.uid == request.resource.data.userId
-        && isValidWakeLog(request.resource.data);
-      // 起床ログは履歴なので更新・削除は不可
-      allow update, delete: if false;
+      // 認証済みユーザーは全員読み取り可（list クエリ対応のためシンプルに）
+      allow read: if request.auth != null;
+      // 書き込み: 認証済み OR デバッグユーザー（PC Admin SDK はルール無視なので実質不要だが明示）
+      allow write: if request.auth != null
+        || isDebugUser(request.resource.data.get('userId', ''));
     }
 
-    // alarm のバリデーション
-    // フィールドを固定し、余計なキーや不正な曜日の書き込みを防ぐ
+    // alarm バリデーション
     function isValidAlarm(data) {
       return data.keys().hasOnly(['time', 'repeatDays', 'status', 'dismissedAt', 'updatedAt'])
         && data.time is string
@@ -38,12 +37,11 @@ service cloud.firestore {
         && data.repeatDays is list
         && data.repeatDays.hasOnly(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
         && data.status in ['scheduled', 'ringing', 'dismissed', 'failed']
-        && (data.dismissedAt == null || data.dismissedAt is string)
-        && data.updatedAt is string;
+        && (data.dismissedAt == null || data.dismissedAt is string || data.dismissedAt is timestamp)
+        && (data.updatedAt is string || data.updatedAt is timestamp);
     }
 
-    // wakeLog のバリデーション
-    // フィールドを固定し、date は月(01-12)・日(01-31)レンジまで検証する
+    // wakeLog バリデーション
     function isValidWakeLog(data) {
       return data.keys().hasOnly(['userId', 'date', 'wakeTime', 'success'])
         && data.userId is string

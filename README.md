@@ -168,12 +168,14 @@ sequenceDiagram
 
 ### iPhoneアプリ
 
-* アラーム設定
-* AlarmKit によるアラーム鳴動（iOS 26+）
+* 複数アラーム設定・管理（追加・編集・削除）
+* アラーム鳴動（AVAudioEngine によるサイン波、サイレントモード無効化）
+  * ※ AlarmKit（iOS 26+）は API 確定待ちのため現在スタブ。鳴動は AVAudioEngine で実装済み
 * QRコード表示（`userId` をエンコード）
 * 緊急停止（パスワード入力 → `failed` 記録）
 * 最大10分での自動停止（→ `failed` 記録）
-* Firebase連携
+* Firebase連携（Firestore リアルタイムリスナー）
+* 連続起床日数（ストリーク）表示
 
 ### PCアプリ
 
@@ -263,9 +265,10 @@ sequenceDiagram
 
 # データ構造例
 
-MVP では「1ユーザー1アラーム」に割り切り、`alarms` のドキュメントID = `userId` とする。
+複数アラームに対応するため、`alarms/{userId}/items/{alarmId}` のサブコレクション構造を採用する。
+`alarmId` は Firestore が自動生成する。
 
-## alarms
+## alarms/{userId}/items/{alarmId}
 
 ```json
 {

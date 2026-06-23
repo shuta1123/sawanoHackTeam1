@@ -5,6 +5,13 @@ struct AlarmSetupView: View {
     @EnvironmentObject var firestoreService: FirestoreService
     @Environment(\.dismiss) private var dismiss
 
+    /// nil = 新規作成、非 nil = 既存アラームの編集
+    let editingAlarm: AlarmDocument?
+
+    init(editingAlarm: AlarmDocument? = nil) {
+        self.editingAlarm = editingAlarm
+    }
+
     @State private var selectedTime: Date = {
         var comps = Calendar.current.dateComponents([.year, .month, .day], from: Date())
         comps.hour = 7
@@ -16,12 +23,11 @@ struct AlarmSetupView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    private var userId: String { authService.user?.uid ?? "" }
+    private var userId: String { authService.currentUserId ?? "" }
+    private var isEditing: Bool { editingAlarm != nil }
 
-    /// 新規入力または Keychain に保存済みハッシュがあれば保存可能
-    private var hasPassword: Bool {
-        !emergencyPassword.isEmpty || loadEmergencyPassword(userId: userId) != nil
-    }
+    /// 常に保存可能（パスワードは任意）
+    private var hasPassword: Bool { true }
 
     var body: some View {
         NavigationStack {
@@ -69,7 +75,7 @@ struct AlarmSetupView: View {
 
                 Section {
                     SecureField(
-                        firestoreService.alarm != nil ? "変更する場合のみ入力" : "緊急停止パスワード",
+                        isEditing ? "変更する場合のみ入力" : "緊急停止パスワード",
                         text: $emergencyPassword
                     )
                     .textContentType(.newPassword)
@@ -88,7 +94,7 @@ struct AlarmSetupView: View {
                     }
                 }
             }
-            .navigationTitle("アラーム設定")
+            .navigationTitle(isEditing ? "アラーム編集" : "アラーム追加")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -104,7 +110,7 @@ struct AlarmSetupView: View {
                             Text("保存").bold()
                         }
                     }
-                    .disabled(!hasPassword || selectedDays.isEmpty || isSaving)
+                    .disabled(!hasPassword || isSaving)
                 }
             }
             .onAppear { loadExisting() }
@@ -114,14 +120,13 @@ struct AlarmSetupView: View {
     // MARK: - Actions
 
     private func loadExisting() {
-        guard let alarm = firestoreService.alarm else { return }
+        guard let alarm = editingAlarm else { return }
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         if let date = formatter.date(from: alarm.time) {
             selectedTime = date
         }
         selectedDays = Set(alarm.repeatDays)
-        // emergencyPassword はハッシュ化済みのため表示しない（再入力時のみ上書き）
     }
 
     private func save() async {
@@ -133,16 +138,10 @@ struct AlarmSetupView: View {
         let timeString = formatter.string(from: selectedTime)
         let repeatDays = Array(selectedDays)
 
-        // 入力があれば新規ハッシュ化、なければ Keychain から引き継ぐ
-        let passwordHash: String
+        // 入力があれば新規ハッシュ化、なければ Keychain から引き継ぐ（なければスキップ）
         if !emergencyPassword.isEmpty {
-            passwordHash = hashPassword(emergencyPassword, userId: userId)
-        } else if let existing = loadEmergencyPassword(userId: userId) {
-            passwordHash = existing
-        } else {
-            errorMessage = "パスワードを入力してください"
-            isSaving = false
-            return
+            let passwordHash = hashPassword(emergencyPassword, userId: userId)
+            saveEmergencyPassword(passwordHash, userId: userId)
         }
 
         // 1. AlarmKit を先にスケジュール（失敗したら Firestore に書かない）
@@ -158,7 +157,9 @@ struct AlarmSetupView: View {
             return
         }
 
-        // 2. Firestore に保存（emergencyPassword は含めない）
+        // 2. Firestore に保存
+        // 編集時は既存の id を引き継ぐ（サブコレクション上書き）
+        // 新規時は id = nil → Firestore が自動生成
         let alarm = AlarmDocument(
             time: timeString,
             repeatDays: repeatDays,
@@ -166,14 +167,25 @@ struct AlarmSetupView: View {
             dismissedAt: nil,
             updatedAt: Date()
         )
+        // @DocumentID は Codable の外側で管理されるため、editingAlarm.id を手動でコピーできない。
+        // saveAlarm 内で editingAlarm.id の有無を確認して書き分ける。
+        // ここでは editingAlarm がある場合にそれを渡す。
+        let alarmToSave: AlarmDocument
+        if var editing = editingAlarm {
+            editing.time = timeString
+            editing.repeatDays = repeatDays
+            editing.status = .scheduled
+            editing.dismissedAt = nil
+            editing.updatedAt = Date()
+            alarmToSave = editing
+        } else {
+            alarmToSave = alarm
+        }
 
         do {
-            try await firestoreService.saveAlarm(alarm, userId: userId)
-            // Firestore 保存成功後に Keychain へ書く
-            saveEmergencyPassword(passwordHash, userId: userId)
+            try await firestoreService.saveAlarm(alarmToSave, userId: userId)
             dismiss()
         } catch {
-            // Firestore 失敗時は AlarmKit もロールバック
             try? await AlarmService.shared.cancel()
             errorMessage = "保存に失敗しました: \(error.localizedDescription)"
         }

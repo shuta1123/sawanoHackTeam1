@@ -1,6 +1,7 @@
 import Foundation
 import CommonCrypto
 import Security
+import FirebaseFirestore
 
 // MARK: - Helpers
 
@@ -71,7 +72,8 @@ enum AlarmStatus: String, Codable {
 
 // MARK: - Firestore Documents
 
-struct AlarmDocument: Codable {
+struct AlarmDocument: Codable, Identifiable {
+    @DocumentID var id: String?
     var time: String              // "HH:mm"
     var repeatDays: [String]      // ["mon", "tue", ...]
     var status: AlarmStatus
@@ -80,12 +82,21 @@ struct AlarmDocument: Codable {
     // emergencyPassword は Keychain に保存するため Firestore には書かない
     // → backend/src/types.ts の Alarm 型・firestore.rules と一致
 
+    // CodingKeys は定義しない。
+    // Firestore.Encoder は @DocumentID を自動でスキップするため、
+    // カスタム CodingKeys で id を除外する必要はない。
+    // むしろ除外すると @DocumentID がデコード時に値をセットできず
+    // alarm.id が常に nil になる（表示・削除バグの原因）。
+
     /// テスト可能な実装。`date` を外から注入できる。
     func isRinging(at date: Date) -> Bool {
         guard status == .scheduled else { return false }
-        let codes = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
-        let dayCode = codes[Calendar.current.component(.weekday, from: date) - 1]
-        guard repeatDays.contains(dayCode) else { return false }
+        // repeatDays が空 = 単発アラーム。曜日チェックをスキップする。
+        if !repeatDays.isEmpty {
+            let codes = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+            let dayCode = codes[Calendar.current.component(.weekday, from: date) - 1]
+            guard repeatDays.contains(dayCode) else { return false }
+        }
         let parts = time.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2 else { return false }
         let comps = Calendar.current.dateComponents([.hour, .minute], from: date)

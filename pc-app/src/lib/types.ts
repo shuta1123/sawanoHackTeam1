@@ -2,10 +2,12 @@
 // README「データ構造例」セクションに準拠する。
 
 /**
- * alarms/{userId} ドキュメント
- * MVPでは「1ユーザー1アラーム」前提のため、ドキュメントIDがそのままuserIdになる。
+ * alarms/{userId}/items/{alarmId} サブコレクションのドキュメント
+ * 複数アラーム対応: ドキュメントID = alarmId（Firestoreが自動生成）
  */
 export interface Alarm {
+  /** Firestoreドキュメント ID（alarmId）。DBから取得した場合のみ設定される */
+  id?: string;
   /** アラーム時刻 "HH:mm" 形式 */
   time: string;
   /** 繰り返す曜日。 "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" */
@@ -26,6 +28,8 @@ export type DerivedAlarmStatus = 'scheduled' | 'ringing' | 'dismissed' | 'failed
 
 export interface AlarmWithDerivedStatus extends Alarm {
   derivedStatus: DerivedAlarmStatus;
+  /** 鳴動中アラームの Firestore ドキュメント ID */
+  alarmId?: string;
 }
 
 /**

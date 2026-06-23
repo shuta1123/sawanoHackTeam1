@@ -41,7 +41,7 @@ final class AuthService: ObservableObject {
         if FirebaseApp.app() == nil {
             // デバッグモード: 固定アカウントのみ許可
             if email == debugEmail && password == debugPassword {
-                debugUserId = "debug-user-local"
+                debugUserId = "user001"
             } else {
                 errorMessage = "デバッグ用: \(debugEmail) / \(debugPassword) でログインしてください"
             }
