@@ -161,12 +161,14 @@ final class FirestoreService: ObservableObject {
             .collection("alarms").document(userId)
             .collection("items")
 
+        // Firestore.Encoder で辞書に変換してから async setData([String:Any]) を使う
+        // （setData(from: Codable) の async 版はこの SDK バージョンに存在しないため）
+        let encoded = try Firestore.Encoder().encode(alarm)
+
         if let alarmId = alarm.id {
-            // 既存アラームの更新: async setData でサーバー確認まで待つ
-            try await items.document(alarmId).setData(from: alarm, merge: false)
+            try await items.document(alarmId).setData(encoded)
         } else {
-            // 新規追加: document() で自動IDを取得してから async setData
-            try await items.document().setData(from: alarm)
+            try await items.document().setData(encoded)
         }
     }
 
@@ -256,7 +258,8 @@ final class FirestoreService: ObservableObject {
 
     func saveWakeLog(_ log: WakeLog) async throws {
         guard isFirebaseReady else { return }
-        try await db.collection("wakeLogs").document().setData(from: log)
+        let encoded = try Firestore.Encoder().encode(log)
+        try await db.collection("wakeLogs").document().setData(encoded)
     }
 
     // MARK: - Streak
