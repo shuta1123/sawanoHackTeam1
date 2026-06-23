@@ -13,22 +13,16 @@ service cloud.firestore {
     }
 
     // alarms/{userId}/items/{alarmId}: 複数アラームのサブコレクション
+    // ハッカソンデモ用: バリデーション外して認証のみ確認
     match /alarms/{userId}/items/{alarmId} {
-      allow read: if isDebugUser(userId) || isOwner(userId);
-      allow create, update: if isDebugUser(userId)
-        || (isOwner(userId) && isValidAlarm(request.resource.data));
-      allow delete: if isDebugUser(userId) || isOwner(userId);
+      allow read, write: if isDebugUser(userId) || isOwner(userId);
     }
 
     // wakeLogs/{logId}: data.userId で所有者を判定
+    // ハッカソンデモ用: バリデーション外して認証のみ確認
     match /wakeLogs/{logId} {
-      allow read: if isDebugUser(resource.data.userId)
-        || (request.auth != null && request.auth.uid == resource.data.userId);
-      allow create: if isDebugUser(request.resource.data.userId)
-        || (request.auth != null
-          && request.auth.uid == request.resource.data.userId
-          && isValidWakeLog(request.resource.data));
-      allow update, delete: if false;
+      allow read, write: if request.auth != null
+        || isDebugUser(request.resource.data.get('userId', ''));
     }
 
     // alarm バリデーション
