@@ -7,6 +7,24 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAlarm, dismissAlarm, recordWakeLog } from '@/lib/firestore';
+import type { Alarm } from '@/lib/types';
+
+const RING_WINDOW_MINUTES = 10;
+const WEEKDAY_CODES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+
+function deriveAlarmStatus(
+  dbStatus: Alarm['status'],
+  time: string,
+  repeatDays: string[]
+): 'scheduled' | 'ringing' | 'dismissed' | 'failed' {
+  if (dbStatus !== 'scheduled') return dbStatus;
+  const now = new Date();
+  if (repeatDays.length > 0 && !repeatDays.includes(WEEKDAY_CODES[now.getDay()])) return 'scheduled';
+  const [hour, minute] = time.split(':').map(Number);
+  const alarmTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0);
+  const diffMins = (now.getTime() - alarmTime.getTime()) / 60_000;
+  return diffMins >= 0 && diffMins < RING_WINDOW_MINUTES ? 'ringing' : 'scheduled';
+}
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -28,6 +46,12 @@ export async function POST(req: NextRequest) {
   // 二重解除の防止
   if (alarm.status === 'dismissed' || alarm.status === 'failed') {
     return NextResponse.json({ ok: true, alreadyHandled: true, status: alarm.status });
+  }
+
+  // 鳴動中でないアラームは解除しない（scheduled なのに QR を読んでも無効）
+  const derivedStatus = deriveAlarmStatus(alarm.status, alarm.time, alarm.repeatDays);
+  if (derivedStatus !== 'ringing') {
+    return NextResponse.json({ error: 'alarm is not ringing', derivedStatus }, { status: 409 });
   }
 
   const { dismissedAt, alarmId: dismissedAlarmId } = await dismissAlarm(userId, alarmId ?? alarm.id);

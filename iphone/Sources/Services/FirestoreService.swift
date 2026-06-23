@@ -185,10 +185,13 @@ final class FirestoreService: ObservableObject {
             .delete()
     }
 
-    /// 前日以前に dismissed/failed になったアラームを scheduled にリセット（繰り返し用）
+    /// 前日以前に dismissed/failed になった【繰り返し】アラームを scheduled にリセット
+    /// 単発アラーム（repeatDays が空）はリセットしない
     func resetOldAlarms(userId: String) async {
         let today = Calendar.current.startOfDay(for: Date())
         for alarm in alarms {
+            // 単発アラームはリセットしない
+            guard !alarm.repeatDays.isEmpty else { continue }
             guard alarm.status == .dismissed || alarm.status == .failed,
                   let alarmId = alarm.id else { continue }
             let referenceDate = alarm.dismissedAt ?? alarm.updatedAt

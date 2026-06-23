@@ -138,11 +138,20 @@ export async function dismissAlarm(
  * 同一 userId+date が既にある場合は既存を返す（1日1レコード保証）。
  */
 export async function recordWakeLog(userId: string, wakeTimeIso: string): Promise<WakeLog> {
-  // ISO文字列はUTCのため、ローカル時刻（JST）で date / wakeTime を算出する
+  // Intl.DateTimeFormat で Asia/Tokyo に固定して date / wakeTime を算出する
   const d = new Date(wakeTimeIso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const wakeTime = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const fmt = (part: Intl.DateTimeFormatPartTypes) =>
+    new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', [part]: '2-digit' })
+      .format(d)
+      .padStart(2, '0');
+  const parts = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  }).formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
+  const date = `${get('year')}-${get('month')}-${get('day')}`;
+  const wakeTime = `${get('hour')}:${get('minute')}`;
 
   const log: WakeLog = { userId, date, wakeTime, success: true };
 
